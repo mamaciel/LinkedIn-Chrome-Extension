@@ -11,9 +11,32 @@ const SELECTORS = {
     '.feed-mini-update-contextual-description__text span[aria-hidden="true"]',
 };
 
-// Function to decode the timestamp from LinkedIn's data-id attribute
-function decodeLinkedInTimestamp(dataId) {
-  const postID = dataId.split(":").pop();
+// Add this near the top of the file
+const ROUTES = {
+  FEED: "/feed/",
+  PROFILE: "/in/",
+  SINGLE_POST: "/feed/update/",
+  SINGLE_POST2: "/posts/",
+  RECENT_ACTIVITY: "/recent-activity/",
+};
+
+function getCurrentRoute() {
+  const url = window.location.href;
+
+  // Check for recent activity pages first
+  if (url.includes("/recent-activity/")) {
+    return "RECENT_ACTIVITY";
+  }
+
+  // Then check other routes
+  for (const [key, path] of Object.entries(ROUTES)) {
+    if (url.includes(path)) return key;
+  }
+  return null;
+}
+
+// Function to decode the timestamp from LinkedIn's post ID
+function decodeLinkedInTimestamp(postID) {
   if (!postID) return null;
   return Number(BigInt(postID) >> 22n);
 }
@@ -28,59 +51,59 @@ const shortTimeZone = new Date()
 function formatDate(timestampMillis, displayOption) {
   const date = new Date(timestampMillis);
 
-  if (displayOption === "datetime") {
-    // Format the date with two-digit year
-    const formattedDate = date.toLocaleDateString("en-US", {
-      month: "numeric",
-      day: "numeric",
-      year: "2-digit",
-    });
+  // Common date format options
+  const dateOptions = {
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+  };
 
-    // Format the time without seconds and remove space before AM/PM
-    let formattedTime = date.toLocaleTimeString("en-US", {
+  const formattedDate = date.toLocaleDateString("en-US", dateOptions);
+
+  if (displayOption !== "datetime") {
+    return formattedDate;
+  }
+
+  // Additional time formatting for datetime option
+  const formattedTime = date
+    .toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
-    });
+    })
+    .replace(/\s(AM|PM)/, "$1");
 
-    // Remove the space before AM/PM
-    formattedTime = formattedTime.replace(/\s(AM|PM)/, "$1");
-
-    return `${formattedDate}, ${formattedTime} (${shortTimeZone})`;
-  } else {
-    const formattedDate = date.toLocaleDateString("en-US", {
-      month: "numeric",
-      day: "numeric",
-      year: "2-digit",
-    });
-    return formattedDate; // Fixed bug here (no parentheses)
-  }
+  return `${formattedDate}, ${formattedTime} (${shortTimeZone})`;
 }
 
-// Function to replace relative times with exact dates while preserving SVGs
-function replaceRelativeTimes(displayOption, rootNode = document) {
-  // Cache the selectors
+// Function to process and update timestamps on main feed posts and recent activity
+function handleMainFeedPosts(displayOption, rootNode = document) {
+  // Find all post elements using the defined selectors
   const postElements = rootNode.querySelectorAll(SELECTORS.postElements);
 
   postElements.forEach((postElement) => {
+    // Extract the post ID from either data-id or data-urn attribute
     const dataId =
       postElement.getAttribute("data-id") ||
       postElement.getAttribute("data-urn");
     if (!dataId) return;
 
-    const timestampMillis = decodeLinkedInTimestamp(dataId);
+    // Extract the numeric ID from the end of the data attribute
+    const postID = dataId.split(":").pop();
+    const timestampMillis = decodeLinkedInTimestamp(postID);
     if (!timestampMillis) return;
 
+    // Format the timestamp according to user preferences
     const formattedDate = formatDate(timestampMillis, displayOption);
+    // Find the element containing the relative time text (e.g., "2 hours ago")
     const relativeTimeElement = postElement.querySelector(
       SELECTORS.relativeTime
     );
 
     if (!relativeTimeElement) return;
 
-    // Store original text if not already stored
+    // Store the original relative time text if not already saved
     if (!relativeTimeElement.hasAttribute("data-original-text")) {
-      // Clone the existing text nodes
       const originalText = Array.from(relativeTimeElement.childNodes)
         .filter((node) => node.nodeType === Node.TEXT_NODE)
         .map((node) => node.textContent.trim())
@@ -88,77 +111,154 @@ function replaceRelativeTimes(displayOption, rootNode = document) {
       relativeTimeElement.setAttribute("data-original-text", originalText);
     }
 
+    // Retrieve the stored original text
     const originalText = relativeTimeElement.getAttribute("data-original-text");
 
-    // Remove existing text nodes to prevent duplication
+    // Remove all existing text nodes to prepare for new timestamp
     Array.from(relativeTimeElement.childNodes).forEach((node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         relativeTimeElement.removeChild(node);
       }
     });
 
-    // Create and insert the new text node
+    // Create the new timestamp format: "MM/DD/YY • original relative time"
     const newText = `${formattedDate} • ${originalText}`;
+    // Insert the new timestamp at the beginning of the element
     relativeTimeElement.insertBefore(
       document.createTextNode(newText),
       relativeTimeElement.firstChild
     );
   });
+}
 
-  // Handle profile activity posts efficiently
-  const profileLinks = rootNode.getElementsByTagName("a");
+// Function to handle single post pages (/feed/update/... or /posts/...)
+function handleSinglePostPage(displayOption, rootNode = document, currentUrl) {
+  let postId;
+
+  // Handle /feed/update/ format
   const activityPattern = /urn:li:activity:(\d+)/;
+  const activityMatch = currentUrl.match(activityPattern);
 
-  for (const link of profileLinks) {
-    // Skip non-feed links early
-    if (!link.href.includes("/feed/update/")) continue;
+  // Handle /posts/ format
+  const postsPattern = /activity-(\d+)/;
+  const postsMatch = currentUrl.match(postsPattern);
 
-    // Extract post ID from URL
-    const match = link.href.match(activityPattern);
-    if (!match) continue;
+  if (activityMatch) {
+    postId = activityMatch[1];
+  } else if (postsMatch) {
+    postId = postsMatch[1];
+  } else {
+    return;
+  }
 
-    // Find and validate the description span
-    const descriptionSpan = link.querySelector(SELECTORS.profileDescription);
-    if (!descriptionSpan?.textContent.includes("posted this •")) continue;
+  // Get the timestamp from the activity ID
+  const timestampMillis = decodeLinkedInTimestamp(postId);
+  if (!timestampMillis) return;
 
-    // Get timestamp
-    const timestampMillis = decodeLinkedInTimestamp(
-      `urn:li:activity:${match[1]}`
+  // Find the relative time element
+  const relativeTimeElement = rootNode.querySelector(
+    '.update-components-actor__sub-description span[aria-hidden="true"]'
+  );
+
+  if (!relativeTimeElement) return;
+
+  // Format the new date
+  const formattedDate = formatDate(timestampMillis, displayOption);
+
+  if (relativeTimeElement.hasAttribute("data-timestamp-added")) {
+    // Update existing timestamp
+    const firstTextNode = Array.from(relativeTimeElement.childNodes).find(
+      (node) => node.nodeType === Node.TEXT_NODE
     );
-    if (!timestampMillis) continue;
-
-    // Find the username element
-    const strongElement = descriptionSpan.querySelector("strong");
-    if (!strongElement) continue;
-
-    // Get relative time from original text
-    const originalText = descriptionSpan.textContent.trim();
-    const relativeTime = originalText
-      .split("posted this •")[1]
-      ?.split("•")
-      .pop()
-      ?.trim();
-    if (!relativeTime) continue;
-
-    // Remove all text nodes while preserving the strong element
-    Array.from(descriptionSpan.childNodes)
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .forEach((node) => node.remove());
-
-    // Clear any remaining content after the strong element
-    while (strongElement.nextSibling) {
-      strongElement.nextSibling.remove();
+    if (firstTextNode) {
+      firstTextNode.textContent = `${formattedDate} • `;
     }
-
-    // Add the new formatted text
-    descriptionSpan.appendChild(
-      document.createTextNode(
-        ` posted this • ${formatDate(
-          timestampMillis,
-          displayOption
-        )} • ${relativeTime}`
-      )
+  } else {
+    // Add new timestamp
+    relativeTimeElement.insertBefore(
+      document.createTextNode(`${formattedDate} • `),
+      relativeTimeElement.firstChild
     );
+    relativeTimeElement.setAttribute("data-timestamp-added", "true");
+  }
+}
+
+// Function to handle profile activity posts (linkedin.com/in/[username])
+function handleProfilePosts(displayOption, rootNode = document) {
+  // Add a small delay to ensure DOM is loaded
+  setTimeout(() => {
+    // The IDs are within the <a> tag in the .pv0.ph5 div
+    const profileLinks =
+      rootNode.querySelector(".pv0.ph5")?.getElementsByTagName("a") || [];
+    const activityPattern = /urn:li:activity:(\d+)/;
+
+    for (const link of profileLinks) {
+      // Skip non-post links
+      if (!link.href.includes("/feed/update/")) continue;
+
+      const match = link.href.match(activityPattern);
+      if (!match) continue;
+
+      const descriptionSpan = link.querySelector(SELECTORS.profileDescription);
+      if (!descriptionSpan?.textContent.includes("posted this •")) continue;
+
+      const timestampMillis = decodeLinkedInTimestamp(match[1]);
+      if (!timestampMillis) continue;
+
+      const strongElement = descriptionSpan.querySelector("strong");
+      if (!strongElement) continue;
+
+      // Store original text if not already saved
+      if (!descriptionSpan.hasAttribute("data-original-text")) {
+        descriptionSpan.setAttribute(
+          "data-original-text",
+          descriptionSpan.textContent.trim()
+        );
+      }
+
+      const originalText = descriptionSpan.getAttribute("data-original-text");
+      const relativeTime = originalText
+        .split("posted this •")[1]
+        ?.split("•")
+        .pop()
+        ?.trim();
+
+      if (!relativeTime) continue;
+
+      // Clear existing text nodes
+      Array.from(descriptionSpan.childNodes)
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .forEach((node) => node.remove());
+
+      while (strongElement.nextSibling) {
+        strongElement.nextSibling.remove();
+      }
+
+      // Add the new formatted text
+      descriptionSpan.appendChild(
+        document.createTextNode(
+          ` posted this • ${formatDate(
+            timestampMillis,
+            displayOption
+          )} • ${relativeTime}`
+        )
+      );
+    }
+  }, 1000); // Added delay to ensure DOM is ready
+}
+
+// Main function that calls the appropriate handler based on URL
+function replaceRelativeTimes(displayOption, rootNode = document) {
+  const route = getCurrentRoute();
+
+  if (route === "SINGLE_POST" || route === "SINGLE_POST2") {
+    handleSinglePostPage(displayOption, rootNode, window.location.href);
+  } else if (route === "RECENT_ACTIVITY") {
+    handleMainFeedPosts(displayOption, rootNode);
+  } else if (route === "PROFILE") {
+    handleProfilePosts(displayOption, rootNode);
+  } else if (route === "FEED") {
+    handleMainFeedPosts(displayOption, rootNode);
   }
 }
 
@@ -209,8 +309,6 @@ function initializeDateReplacement() {
   chrome.storage.sync
     .get(["displayOption", "extensionEnabled"])
     .then((data) => {
-      if (!isExtensionContextValid()) return;
-
       const displayOption = data.displayOption || "date";
       const extensionEnabled = data.extensionEnabled !== false;
 
@@ -231,6 +329,19 @@ function initializeDateReplacement() {
     });
 }
 
+// Add cleanup function
+function cleanup() {
+  if (feedObserver) {
+    feedObserver.disconnect();
+    feedObserver = null;
+  }
+  // Clear any running intervals
+  if (window.urlCheckInterval) {
+    clearInterval(window.urlCheckInterval);
+  }
+}
+
+// Add to extension disable handler
 function handleExtensionToggle(enabled, displayOption) {
   if (enabled) {
     initializeDateReplacement();
@@ -284,39 +395,47 @@ function monitorUrlChanges() {
   let currentUrl = window.location.href;
   let urlCheckInterval;
 
-  const onUrlChange = () => {
-    if (currentUrl !== window.location.href) {
-      currentUrl = window.location.href;
+  const onUrlChange = async () => {
+    const newUrl = window.location.href;
+    if (currentUrl !== newUrl) {
+      currentUrl = newUrl;
 
-      // Clear any existing interval
+      // Clear existing interval
       if (urlCheckInterval) {
         clearInterval(urlCheckInterval);
       }
 
-      // Set up an interval to check for new content
-      urlCheckInterval = setInterval(() => {
-        chrome.storage.sync
-          .get(["displayOption", "extensionEnabled"])
-          .then((data) => {
-            if (data.extensionEnabled !== false) {
-              replaceRelativeTimes(data.displayOption || "date");
+      // Wait for DOM to settle after SPA navigation
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Get latest settings and apply changes
+      try {
+        const data = await chrome.storage.sync.get([
+          "displayOption",
+          "extensionEnabled",
+        ]);
+        if (data.extensionEnabled !== false) {
+          replaceRelativeTimes(data.displayOption || "date");
+
+          // Set up a short interval to catch dynamically loaded content
+          urlCheckInterval = setInterval(() => {
+            replaceRelativeTimes(data.displayOption || "date");
+          }, 1000);
+
+          // Clear interval after 5 seconds
+          setTimeout(() => {
+            if (urlCheckInterval) {
+              clearInterval(urlCheckInterval);
             }
-          });
-      }, 1000); // Check every second
-
-      // Clear the interval after 10 seconds
-      setTimeout(() => {
-        if (urlCheckInterval) {
-          clearInterval(urlCheckInterval);
+          }, 5000);
         }
-      }, 10000);
-
-      // Initial replacement
-      initializeDateReplacement();
+      } catch (error) {
+        console.error("Error handling URL change:", error);
+      }
     }
   };
 
-  // Override pushState and replaceState to detect URL changes
+  // Listen for URL changes using History API
   const originalPushState = history.pushState;
   history.pushState = function (...args) {
     originalPushState.apply(this, args);
@@ -329,10 +448,23 @@ function monitorUrlChanges() {
     onUrlChange();
   };
 
-  // Listen to the popstate event
+  // Listen for PopState event
   window.addEventListener("popstate", onUrlChange);
 
-  // Initial URL check
+  // Observe DOM changes for SPA navigation
+  const observer = new MutationObserver(() => {
+    if (currentUrl !== window.location.href) {
+      onUrlChange();
+    }
+  });
+
+  // Observe changes to the main content area
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+
+  // Initial check
   onUrlChange();
 }
 
