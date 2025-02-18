@@ -13,26 +13,57 @@ const SELECTORS = {
 
 // Add this near the top of the file
 const ROUTES = {
+  COMPANY: "/company/",
   FEED: "/feed/",
   PROFILE: "/in/",
   SINGLE_POST: "/feed/update/",
   SINGLE_POST2: "/posts/",
   RECENT_ACTIVITY: "/recent-activity/",
+  SEARCH: "/search/",
 };
+
+// Add at the top with other constants
+const DEBOUNCE_DELAY = 100; // milliseconds
+const PROCESSED_POSTS = new Set(); // Track which posts we've already processed
+
+// Cache formatters
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "numeric",
+  day: "numeric",
+  year: "2-digit",
+});
+
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+// Utility debounce function
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 function getCurrentRoute() {
   const url = window.location.href;
 
-  // Check for recent activity pages first
-  if (url.includes("/recent-activity/")) {
-    return "RECENT_ACTIVITY";
+  // Check for single post pages first (they're more specific)
+  if (url.includes("/feed/update/") || url.includes("/posts/")) {
+    return url.includes("/feed/update/") ? "SINGLE_POST" : "SINGLE_POST2";
   }
 
   // Then check other routes
-  for (const [key, path] of Object.entries(ROUTES)) {
-    if (url.includes(path)) return key;
-  }
-  return null;
+  return (
+    Object.entries(ROUTES).find(([_, path]) => url.includes(path))?.[0] || null
+  );
 }
 
 // Function to decode the timestamp from LinkedIn's post ID
@@ -50,28 +81,13 @@ const shortTimeZone = new Date()
 // Function to format the date based on user preference
 function formatDate(timestampMillis, displayOption) {
   const date = new Date(timestampMillis);
-
-  // Common date format options
-  const dateOptions = {
-    month: "numeric",
-    day: "numeric",
-    year: "2-digit",
-  };
-
-  const formattedDate = date.toLocaleDateString("en-US", dateOptions);
+  const formattedDate = dateFormatter.format(date);
 
   if (displayOption !== "datetime") {
     return formattedDate;
   }
 
-  // Additional time formatting for datetime option
-  const formattedTime = date
-    .toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-    .replace(/\s(AM|PM)/, "$1");
+  const formattedTime = timeFormatter.format(date).replace(/\s(AM|PM)/, "$1");
 
   return `${formattedDate}, ${formattedTime} (${shortTimeZone})`;
 }
@@ -82,25 +98,24 @@ function handleMainFeedPosts(displayOption, rootNode = document) {
   const postElements = rootNode.querySelectorAll(SELECTORS.postElements);
 
   postElements.forEach((postElement) => {
-    // Extract the post ID from either data-id or data-urn attribute
+    // Skip if we've already processed this post
     const dataId =
       postElement.getAttribute("data-id") ||
       postElement.getAttribute("data-urn");
-    if (!dataId) return;
+    if (!dataId || PROCESSED_POSTS.has(dataId)) return;
 
-    // Extract the numeric ID from the end of the data attribute
+    // Process the post
     const postID = dataId.split(":").pop();
     const timestampMillis = decodeLinkedInTimestamp(postID);
     if (!timestampMillis) return;
 
-    // Format the timestamp according to user preferences
-    const formattedDate = formatDate(timestampMillis, displayOption);
-    // Find the element containing the relative time text (e.g., "2 hours ago")
     const relativeTimeElement = postElement.querySelector(
       SELECTORS.relativeTime
     );
-
     if (!relativeTimeElement) return;
+
+    // Format the timestamp according to user preferences
+    const formattedDate = formatDate(timestampMillis, displayOption);
 
     // Store the original relative time text if not already saved
     if (!relativeTimeElement.hasAttribute("data-original-text")) {
@@ -128,138 +143,21 @@ function handleMainFeedPosts(displayOption, rootNode = document) {
       document.createTextNode(newText),
       relativeTimeElement.firstChild
     );
+
+    // Mark this post as processed
+    PROCESSED_POSTS.add(dataId);
   });
 }
 
-// Function to handle single post pages (/feed/update/... or /posts/...)
-function handleSinglePostPage(displayOption, rootNode = document, currentUrl) {
-  let postId;
-
-  // Handle /feed/update/ format
-  const activityPattern = /urn:li:activity:(\d+)/;
-  const activityMatch = currentUrl.match(activityPattern);
-
-  // Handle /posts/ format
-  const postsPattern = /activity-(\d+)/;
-  const postsMatch = currentUrl.match(postsPattern);
-
-  if (activityMatch) {
-    postId = activityMatch[1];
-  } else if (postsMatch) {
-    postId = postsMatch[1];
-  } else {
-    return;
-  }
-
-  // Get the timestamp from the activity ID
-  const timestampMillis = decodeLinkedInTimestamp(postId);
-  if (!timestampMillis) return;
-
-  // Find the relative time element
-  const relativeTimeElement = rootNode.querySelector(
-    '.update-components-actor__sub-description span[aria-hidden="true"]'
-  );
-
-  if (!relativeTimeElement) return;
-
-  // Format the new date
-  const formattedDate = formatDate(timestampMillis, displayOption);
-
-  if (relativeTimeElement.hasAttribute("data-timestamp-added")) {
-    // Update existing timestamp
-    const firstTextNode = Array.from(relativeTimeElement.childNodes).find(
-      (node) => node.nodeType === Node.TEXT_NODE
-    );
-    if (firstTextNode) {
-      firstTextNode.textContent = `${formattedDate} • `;
-    }
-  } else {
-    // Add new timestamp
-    relativeTimeElement.insertBefore(
-      document.createTextNode(`${formattedDate} • `),
-      relativeTimeElement.firstChild
-    );
-    relativeTimeElement.setAttribute("data-timestamp-added", "true");
-  }
-}
-
-// Function to handle profile activity posts (linkedin.com/in/[username])
-function handleProfilePosts(displayOption, rootNode = document) {
-  // Add a small delay to ensure DOM is loaded
-  setTimeout(() => {
-    // The IDs are within the <a> tag in the .pv0.ph5 div
-    const profileLinks =
-      rootNode.querySelector(".pv0.ph5")?.getElementsByTagName("a") || [];
-    const activityPattern = /urn:li:activity:(\d+)/;
-
-    for (const link of profileLinks) {
-      // Skip non-post links
-      if (!link.href.includes("/feed/update/")) continue;
-
-      const match = link.href.match(activityPattern);
-      if (!match) continue;
-
-      const descriptionSpan = link.querySelector(SELECTORS.profileDescription);
-      if (!descriptionSpan?.textContent.includes("posted this •")) continue;
-
-      const timestampMillis = decodeLinkedInTimestamp(match[1]);
-      if (!timestampMillis) continue;
-
-      const strongElement = descriptionSpan.querySelector("strong");
-      if (!strongElement) continue;
-
-      // Store original text if not already saved
-      if (!descriptionSpan.hasAttribute("data-original-text")) {
-        descriptionSpan.setAttribute(
-          "data-original-text",
-          descriptionSpan.textContent.trim()
-        );
-      }
-
-      const originalText = descriptionSpan.getAttribute("data-original-text");
-      const relativeTime = originalText
-        .split("posted this •")[1]
-        ?.split("•")
-        .pop()
-        ?.trim();
-
-      if (!relativeTime) continue;
-
-      // Clear existing text nodes
-      Array.from(descriptionSpan.childNodes)
-        .filter((node) => node.nodeType === Node.TEXT_NODE)
-        .forEach((node) => node.remove());
-
-      while (strongElement.nextSibling) {
-        strongElement.nextSibling.remove();
-      }
-
-      // Add the new formatted text
-      descriptionSpan.appendChild(
-        document.createTextNode(
-          ` posted this • ${formatDate(
-            timestampMillis,
-            displayOption
-          )} • ${relativeTime}`
-        )
-      );
-    }
-  }, 1000); // Added delay to ensure DOM is ready
-}
+// Debounced version of the handler
+const debouncedHandleMainFeedPosts = debounce(
+  handleMainFeedPosts,
+  DEBOUNCE_DELAY
+);
 
 // Main function that calls the appropriate handler based on URL
 function replaceRelativeTimes(displayOption, rootNode = document) {
-  const route = getCurrentRoute();
-
-  if (route === "SINGLE_POST" || route === "SINGLE_POST2") {
-    handleSinglePostPage(displayOption, rootNode, window.location.href);
-  } else if (route === "RECENT_ACTIVITY") {
-    handleMainFeedPosts(displayOption, rootNode);
-  } else if (route === "PROFILE") {
-    handleProfilePosts(displayOption, rootNode);
-  } else if (route === "FEED") {
-    handleMainFeedPosts(displayOption, rootNode);
-  }
+  handleMainFeedPosts(displayOption, rootNode);
 }
 
 // Function to observe the feed container and profile content
@@ -271,15 +169,27 @@ function observeFeedContainer(displayOption) {
 
   // Create a new observer that watches for both feed and profile content
   feedObserver = new MutationObserver((mutationsList) => {
+    let shouldProcess = false;
+
+    // Check if any mutations are relevant before processing
     for (const mutation of mutationsList) {
-      if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            // Run the replacement on the new node
-            replaceRelativeTimes(displayOption, node);
-          }
-        });
+      if (
+        mutation.type === "childList" &&
+        mutation.addedNodes.length > 0 &&
+        Array.from(mutation.addedNodes).some(
+          (node) =>
+            node.nodeType === Node.ELEMENT_NODE &&
+            (node.querySelector(SELECTORS.postElements) ||
+              node.matches(SELECTORS.postElements))
+        )
+      ) {
+        shouldProcess = true;
+        break;
       }
+    }
+
+    if (shouldProcess) {
+      debouncedHandleMainFeedPosts(displayOption);
     }
   });
 
@@ -287,10 +197,12 @@ function observeFeedContainer(displayOption) {
   feedObserver.observe(document.body, {
     childList: true,
     subtree: true,
+    attributes: false, // We don't need to watch attributes
+    characterData: false, // We don't need to watch text changes
   });
 
-  // Also run the replacement immediately
-  replaceRelativeTimes(displayOption);
+  // Initial run
+  handleMainFeedPosts(displayOption);
 }
 
 // Check if the extension context is valid
@@ -335,6 +247,7 @@ function cleanup() {
     feedObserver.disconnect();
     feedObserver = null;
   }
+  PROCESSED_POSTS.clear();
   // Clear any running intervals
   if (window.urlCheckInterval) {
     clearInterval(window.urlCheckInterval);
@@ -344,6 +257,7 @@ function cleanup() {
 // Add to extension disable handler
 function handleExtensionToggle(enabled, displayOption) {
   if (enabled) {
+    PROCESSED_POSTS.clear();
     initializeDateReplacement();
   } else {
     if (feedObserver) {
@@ -399,6 +313,7 @@ function monitorUrlChanges() {
     const newUrl = window.location.href;
     if (currentUrl !== newUrl) {
       currentUrl = newUrl;
+      cleanupProcessedPosts(); // Clear processed posts on navigation
 
       // Clear existing interval
       if (urlCheckInterval) {
@@ -466,6 +381,11 @@ function monitorUrlChanges() {
 
   // Initial check
   onUrlChange();
+}
+
+// Clean up processed posts when navigating
+function cleanupProcessedPosts() {
+  PROCESSED_POSTS.clear();
 }
 
 // Run the replacement initially and set up observers

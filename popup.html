@@ -222,31 +222,62 @@
       <h3>Display LinkedIn Post Dates</h3>
       <div class="toggle-switch">
         <span class="toggle-label">Enable extension</span>
-        <label class="switch">
-          <input type="checkbox" id="extensionToggle" />
+        <label class="switch" aria-label="Toggle extension">
+          <input
+            type="checkbox"
+            id="extensionToggle"
+            aria-checked="false"
+            role="switch"
+          />
           <span class="slider"></span>
         </label>
       </div>
-      <div class="option-group" id="options">
+      <div
+        class="option-group"
+        id="options"
+        role="radiogroup"
+        aria-label="Display format options"
+      >
         <label>
-          <input type="radio" name="display" value="date" id="dateOnly" />
+          <input
+            type="radio"
+            name="display"
+            value="date"
+            id="dateOnly"
+            aria-label="Show date only"
+          />
           <span>Show Date Only</span>
         </label>
         <label>
-          <input type="radio" name="display" value="datetime" id="dateTime" />
+          <input
+            type="radio"
+            name="display"
+            value="datetime"
+            id="dateTime"
+            aria-label="Show date and time"
+          />
           <span>Show Date and Time</span>
         </label>
       </div>
-      <button class="save-btn" id="save">Save Changes</button>
       <p class="credits">
         Created by
-        <a href="https://www.marcosmaciel.tech" target="_blank" id="creditsLink"
+        <a
+          href="https://www.marcosmaciel.tech"
+          target="_blank"
+          id="creditsLink"
+          aria-label="Visit Marcos Maciel's website (opens in new tab)"
           >Marcos Maciel</a
         >
       </p>
     </div>
-    <div class="success-message" id="successMessage">
-      Settings saved successfully!
+    <div
+      class="success-message"
+      id="successMessage"
+      style="text-align: center; min-width: max-content"
+      role="alert"
+      aria-live="polite"
+    >
+      Settings updated successfully!
     </div>
     <script src="popup.js"></script>
   </body>

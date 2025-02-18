@@ -1,5 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const saveButton = document.getElementById("save");
   const dateOnly = document.getElementById("dateOnly");
   const dateTime = document.getElementById("dateTime");
   const successMessage = document.getElementById("successMessage");
@@ -20,35 +19,52 @@ document.addEventListener("DOMContentLoaded", () => {
     optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
   });
 
-  // Handle extension toggle
+  // Handle extension toggle changes
   extensionToggle.addEventListener("change", () => {
-    optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
+    const extensionEnabled = extensionToggle.checked;
+    optionsGroup.classList.toggle("disabled", !extensionEnabled);
+
+    // Save the toggle state and notify content script
+    chrome.storage.sync.set({ extensionEnabled }, () => {
+      showSuccessMessage();
+      notifyContentScript(
+        extensionEnabled,
+        document.querySelector('input[name="display"]:checked').value
+      );
+    });
   });
 
-  saveButton.addEventListener("click", () => {
-    const displayOption = document.querySelector(
-      'input[name="display"]:checked'
-    ).value;
-    const extensionEnabled = extensionToggle.checked;
+  // Handle radio button changes
+  document.querySelectorAll('input[name="display"]').forEach((radio) => {
+    radio.addEventListener("change", (e) => {
+      const displayOption = e.target.value;
 
-    // Save all preferences
-    chrome.storage.sync.set({ displayOption, extensionEnabled }, () => {
-      // Show success message
-      successMessage.classList.add("show");
-      setTimeout(() => {
-        successMessage.classList.remove("show");
-      }, 2000);
-
-      // Send message to content scripts to update immediately
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          action: "updateDisplayOption",
-          enabled: extensionEnabled,
-          displayOption: displayOption,
-        });
+      // Save the display option and notify content script
+      chrome.storage.sync.set({ displayOption }, () => {
+        showSuccessMessage();
+        notifyContentScript(extensionToggle.checked, displayOption);
       });
     });
   });
+
+  // Helper function to show success message
+  function showSuccessMessage() {
+    successMessage.classList.add("show");
+    setTimeout(() => {
+      successMessage.classList.remove("show");
+    }, 2000);
+  }
+
+  // Helper function to notify content script
+  function notifyContentScript(enabled, displayOption) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      chrome.tabs.sendMessage(tabs[0].id, {
+        action: "updateDisplayOption",
+        enabled: enabled,
+        displayOption: displayOption,
+      });
+    });
+  }
 
   document.getElementById("creditsLink").addEventListener("click", (e) => {
     e.preventDefault();

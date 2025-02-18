@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Display LinkedIn Post Date and Time",
-  "version": "1.2",
+  "version": "1.5",
   "description": "Replace LinkedIn's relative post times with exact date and timestamp on your feed!",
   "permissions": ["storage"],
   "content_scripts": [
@@ -9,7 +9,9 @@
       "matches": [
         "https://www.linkedin.com/feed/*",
         "https://www.linkedin.com/posts/*",
-        "https://www.linkedin.com/in/*"
+        "https://www.linkedin.com/in/*",
+        "https://www.linkedin.com/search/*",
+        "https://www.linkedin.com/company/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
