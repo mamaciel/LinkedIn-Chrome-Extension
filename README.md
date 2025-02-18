@@ -12,6 +12,8 @@ Hey there! I made this Chrome extension because I was tired of LinkedIn's vague 
 ## Want to try it?
 
 Just download it from the Chrome Web Store (https://chromewebstore.google.com/detail/display-linkedin-post-dat/hkgafbpgfpjjamcgkfdkdocppfpcjjhn)!
+![image](https://github.com/user-attachments/assets/1dce4330-ab34-46e2-9ce8-17c413b9686c)
+
 
 ## Settings ⚙️
 
