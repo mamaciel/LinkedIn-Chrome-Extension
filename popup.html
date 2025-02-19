@@ -124,7 +124,6 @@
 
       label:hover {
         background-color: var(--background-color);
-        transform: translateY(-2px);
       }
 
       input[type="radio"] {
@@ -154,28 +153,6 @@
         left: 50%;
         transform: translate(-50%, -50%) scale(0.8);
         transition: transform 0.2s;
-      }
-
-      .save-btn {
-        background: var(--primary-color);
-        color: white;
-        border: none;
-        padding: 14px 24px;
-        border-radius: 28px;
-        font-size: 16px;
-        font-weight: 600;
-        width: 100%;
-        cursor: pointer;
-        transition: background-color 0.2s, transform 0.2s;
-      }
-
-      .save-btn:hover {
-        background: var(--primary-hover);
-        transform: translateY(-2px);
-      }
-
-      .save-btn:active {
-        transform: scale(0.98);
       }
 
       .credits {
@@ -215,6 +192,18 @@
         opacity: 1;
         transform: translate(-50%, 4px);
       }
+
+      .coffee-link {
+        display: inline-block;
+        margin-top: 8px;
+        color: #555;
+        text-decoration: none;
+        font-size: 0.9em;
+      }
+
+      .coffee-link:hover {
+        color: #0a66c2;
+      }
     </style>
   </head>
   <body>
@@ -226,6 +215,18 @@
           <input
             type="checkbox"
             id="extensionToggle"
+            aria-checked="false"
+            role="switch"
+          />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-switch">
+        <span class="toggle-label">Show comment timestamps</span>
+        <label class="switch" aria-label="Toggle comment timestamps">
+          <input
+            type="checkbox"
+            id="commentTimestamps"
             aria-checked="false"
             role="switch"
           />
@@ -268,6 +269,15 @@
           aria-label="Visit Marcos Maciel's website (opens in new tab)"
           >Marcos Maciel</a
         >
+        <br />
+        <a
+          href="https://buymeacoffee.com/marcosmaciel"
+          target="_blank"
+          aria-label="Support the developer on Buy Me a Coffee (opens in new tab)"
+          class="coffee-link"
+        >
+          ☕️ Buy me a coffee
+        </a>
       </p>
     </div>
     <div

@@ -9,6 +9,8 @@ const SELECTORS = {
     '.update-components-actor__sub-description span[aria-hidden="true"]',
   profileDescription:
     '.feed-mini-update-contextual-description__text span[aria-hidden="true"]',
+  comments: "article.comments-comment-entity",
+  commentTime: "time.comments-comment-meta__data",
 };
 
 // Add this near the top of the file
@@ -158,6 +160,13 @@ const debouncedHandleMainFeedPosts = debounce(
 // Main function that calls the appropriate handler based on URL
 function replaceRelativeTimes(displayOption, rootNode = document) {
   handleMainFeedPosts(displayOption, rootNode);
+
+  // Get the setting and process comments if enabled
+  chrome.storage.sync.get(["commentTimestamps"], (data) => {
+    if (data.commentTimestamps === true) {
+      handleCommentTimestamps(displayOption, rootNode);
+    }
+  });
 }
 
 // Function to observe the feed container and profile content
@@ -169,27 +178,51 @@ function observeFeedContainer(displayOption) {
 
   // Create a new observer that watches for both feed and profile content
   feedObserver = new MutationObserver((mutationsList) => {
-    let shouldProcess = false;
+    let shouldProcessPosts = false;
+    let shouldProcessComments = false;
 
     // Check if any mutations are relevant before processing
     for (const mutation of mutationsList) {
-      if (
-        mutation.type === "childList" &&
-        mutation.addedNodes.length > 0 &&
-        Array.from(mutation.addedNodes).some(
-          (node) =>
-            node.nodeType === Node.ELEMENT_NODE &&
-            (node.querySelector(SELECTORS.postElements) ||
-              node.matches(SELECTORS.postElements))
-        )
-      ) {
-        shouldProcess = true;
-        break;
+      if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
+        const addedNodes = Array.from(mutation.addedNodes);
+
+        // Check for new posts
+        if (
+          addedNodes.some(
+            (node) =>
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node.querySelector(SELECTORS.postElements) ||
+                node.matches(SELECTORS.postElements))
+          )
+        ) {
+          shouldProcessPosts = true;
+        }
+
+        // Check for new comments
+        if (
+          addedNodes.some(
+            (node) =>
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node.querySelector(SELECTORS.comments) ||
+                node.matches(SELECTORS.comments))
+          )
+        ) {
+          shouldProcessComments = true;
+        }
       }
     }
 
-    if (shouldProcess) {
+    if (shouldProcessPosts) {
       debouncedHandleMainFeedPosts(displayOption);
+    }
+
+    if (shouldProcessComments) {
+      // Check if comment timestamps are enabled before processing
+      chrome.storage.sync.get(["commentTimestamps"], (data) => {
+        if (data.commentTimestamps === true) {
+          handleCommentTimestamps(displayOption);
+        }
+      });
     }
   });
 
@@ -197,12 +230,18 @@ function observeFeedContainer(displayOption) {
   feedObserver.observe(document.body, {
     childList: true,
     subtree: true,
-    attributes: false, // We don't need to watch attributes
-    characterData: false, // We don't need to watch text changes
+    attributes: false,
+    characterData: false,
   });
 
   // Initial run
   handleMainFeedPosts(displayOption);
+  // Also check for any existing comments
+  chrome.storage.sync.get(["commentTimestamps"], (data) => {
+    if (data.commentTimestamps === true) {
+      handleCommentTimestamps(displayOption);
+    }
+  });
 }
 
 // Check if the extension context is valid
@@ -386,6 +425,13 @@ function monitorUrlChanges() {
 // Clean up processed posts when navigating
 function cleanupProcessedPosts() {
   PROCESSED_POSTS.clear();
+  // Restore original comment timestamps
+  document.querySelectorAll(SELECTORS.commentTime).forEach((timeElement) => {
+    const originalText = timeElement.getAttribute("data-original-text");
+    if (originalText) {
+      timeElement.textContent = originalText;
+    }
+  });
 }
 
 // Run the replacement initially and set up observers
@@ -393,3 +439,35 @@ initializeDateReplacement();
 
 // Start monitoring URL changes
 monitorUrlChanges();
+
+function handleCommentTimestamps(displayOption, rootNode = document) {
+  const commentElements = rootNode.querySelectorAll(SELECTORS.comments);
+
+  commentElements.forEach((commentElement) => {
+    const dataId = commentElement.getAttribute("data-id");
+    if (!dataId || PROCESSED_POSTS.has(dataId)) return;
+
+    const commentId = dataId.split(",").pop().replace(")", "");
+    const timestampMillis = decodeLinkedInTimestamp(commentId);
+    if (!timestampMillis) return;
+
+    const timeElement = commentElement.querySelector(SELECTORS.commentTime);
+    if (!timeElement) return;
+
+    // Store original text if not already saved
+    if (!timeElement.hasAttribute("data-original-text")) {
+      timeElement.setAttribute(
+        "data-original-text",
+        timeElement.textContent.trim()
+      );
+    }
+
+    const formattedDate = formatDate(timestampMillis, displayOption);
+    const originalText = timeElement.getAttribute("data-original-text");
+
+    // Add formatted date with bullet point separator
+    timeElement.textContent = `${formattedDate} • ${originalText}`;
+
+    PROCESSED_POSTS.add(dataId);
+  });
+}

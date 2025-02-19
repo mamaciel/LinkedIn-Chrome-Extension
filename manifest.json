@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Display LinkedIn Post Date and Time",
-  "version": "1.5",
-  "description": "Replace LinkedIn's relative post times with exact date and timestamp on your feed!",
+  "version": "1.6",
+  "description": "Replace LinkedIn's relative post times with exact date and timestamp on your feed! Also displays comment timestamps.",
   "permissions": ["storage"],
   "content_scripts": [
     {

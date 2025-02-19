@@ -4,20 +4,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const successMessage = document.getElementById("successMessage");
   const extensionToggle = document.getElementById("extensionToggle");
   const optionsGroup = document.getElementById("options");
+  const commentTimestamps = document.getElementById("commentTimestamps");
 
   // Initialize the UI based on stored preferences
-  chrome.storage.sync.get(["displayOption", "extensionEnabled"], (data) => {
-    // Set display option
-    if (data.displayOption === "datetime") {
-      dateTime.checked = true;
-    } else {
-      dateOnly.checked = true;
-    }
+  chrome.storage.sync.get(
+    ["displayOption", "extensionEnabled", "commentTimestamps"],
+    (data) => {
+      // Set display option
+      if (data.displayOption === "datetime") {
+        dateTime.checked = true;
+      } else {
+        dateOnly.checked = true;
+      }
 
-    // Set extension toggle
-    extensionToggle.checked = data.extensionEnabled !== false; // Default to true if not set
-    optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
-  });
+      // Set extension toggle
+      extensionToggle.checked = data.extensionEnabled !== false; // Default to true if not set
+      optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
+
+      // Set comment timestamps toggle
+      commentTimestamps.checked = data.commentTimestamps === true;
+    }
+  );
 
   // Handle extension toggle changes
   extensionToggle.addEventListener("change", () => {
@@ -29,7 +36,8 @@ document.addEventListener("DOMContentLoaded", () => {
       showSuccessMessage();
       notifyContentScript(
         extensionEnabled,
-        document.querySelector('input[name="display"]:checked').value
+        document.querySelector('input[name="display"]:checked').value,
+        commentTimestamps.checked
       );
     });
   });
@@ -42,10 +50,33 @@ document.addEventListener("DOMContentLoaded", () => {
       // Save the display option and notify content script
       chrome.storage.sync.set({ displayOption }, () => {
         showSuccessMessage();
-        notifyContentScript(extensionToggle.checked, displayOption);
+        notifyContentScript(
+          extensionToggle.checked,
+          displayOption,
+          commentTimestamps.checked
+        );
       });
     });
   });
+
+  // Add event listener for comment timestamps toggle
+  document
+    .getElementById("commentTimestamps")
+    .addEventListener("change", (e) => {
+      const showCommentTimestamps = e.target.checked;
+
+      chrome.storage.sync.set(
+        { commentTimestamps: showCommentTimestamps },
+        () => {
+          showSuccessMessage();
+          notifyContentScript(
+            extensionToggle.checked,
+            document.querySelector('input[name="display"]:checked').value,
+            showCommentTimestamps
+          );
+        }
+      );
+    });
 
   // Helper function to show success message
   function showSuccessMessage() {
@@ -56,12 +87,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Helper function to notify content script
-  function notifyContentScript(enabled, displayOption) {
+  function notifyContentScript(enabled, displayOption, commentTimestamps) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       chrome.tabs.sendMessage(tabs[0].id, {
         action: "updateDisplayOption",
         enabled: enabled,
         displayOption: displayOption,
+        commentTimestamps: commentTimestamps,
       });
     });
   }
