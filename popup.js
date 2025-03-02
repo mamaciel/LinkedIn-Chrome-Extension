@@ -34,20 +34,24 @@ document.addEventListener("DOMContentLoaded", () => {
   );
 
   // Handle extension toggle changes
+  function updateSettings(settings, additionalParams = {}) {
+    chrome.storage.sync.set(settings, () => {
+      showSuccessMessage();
+      notifyContentScript(
+        extensionToggle.checked,
+        document.querySelector('input[name="display"]:checked').value,
+        commentTimestamps.checked,
+        ...Object.values(additionalParams)
+      );
+    });
+  }
+
   extensionToggle.addEventListener("change", () => {
     const extensionEnabled = extensionToggle.checked;
     optionsGroup.classList.toggle("disabled", !extensionEnabled);
     commentTimestampsContainer.classList.toggle("disabled", !extensionEnabled);
 
-    // Save the toggle state and notify content script
-    chrome.storage.sync.set({ extensionEnabled }, () => {
-      showSuccessMessage();
-      notifyContentScript(
-        extensionEnabled,
-        document.querySelector('input[name="display"]:checked').value,
-        commentTimestamps.checked
-      );
-    });
+    updateSettings({ extensionEnabled });
   });
 
   // Handle radio button changes
@@ -56,14 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const displayOption = e.target.value;
 
       // Save the display option and notify content script
-      chrome.storage.sync.set({ displayOption }, () => {
-        showSuccessMessage();
-        notifyContentScript(
-          extensionToggle.checked,
-          displayOption,
-          commentTimestamps.checked
-        );
-      });
+      updateSettings({ displayOption });
     });
   });
 
@@ -73,17 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
     .addEventListener("change", (e) => {
       const showCommentTimestamps = e.target.checked;
 
-      chrome.storage.sync.set(
-        { commentTimestamps: showCommentTimestamps },
-        () => {
-          showSuccessMessage();
-          notifyContentScript(
-            extensionToggle.checked,
-            document.querySelector('input[name="display"]:checked').value,
-            showCommentTimestamps
-          );
-        }
-      );
+      updateSettings({ commentTimestamps: showCommentTimestamps });
     });
 
   // Helper function to show success message
@@ -100,26 +87,27 @@ document.addEventListener("DOMContentLoaded", () => {
       // Make sure we have a tab
       if (tabs && tabs.length > 0) {
         // Send message and handle potential errors
-        chrome.tabs.sendMessage(
-          tabs[0].id,
-          {
+        chrome.tabs
+          .sendMessage(tabs[0].id, {
             action: "updateDisplayOption",
-            enabled: enabled,
-            displayOption: displayOption,
-            commentTimestamps: commentTimestamps,
-          },
-          // Optional callback to silently handle the error
-          (response) => {
-            let lastError = chrome.runtime.lastError;
-            // We're just suppressing the error "Uncaught (in promise) Error: Could not establish connection. Receiving end does not exist." by checking for it
-            // No need to do anything with it
-          }
-        );
+            enabled,
+            displayOption,
+            commentTimestamps,
+          })
+          .catch(() => {
+            // Silently catch any connection errors
+            // This happens when the extension popup is opened on non-LinkedIn pages
+          });
       }
     });
   }
 
   document.getElementById("creditsLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: e.target.href });
+  });
+
+  document.querySelector(".coffee-button").addEventListener("click", (e) => {
     e.preventDefault();
     chrome.tabs.create({ url: e.target.href });
   });
