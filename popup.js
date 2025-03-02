@@ -5,6 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const extensionToggle = document.getElementById("extensionToggle");
   const optionsGroup = document.getElementById("options");
   const commentTimestamps = document.getElementById("commentTimestamps");
+  const commentTimestampsContainer = document
+    .getElementById("commentTimestamps")
+    .closest(".toggle-switch");
 
   // Initialize the UI based on stored preferences
   chrome.storage.sync.get(
@@ -20,6 +23,10 @@ document.addEventListener("DOMContentLoaded", () => {
       // Set extension toggle
       extensionToggle.checked = data.extensionEnabled !== false; // Default to true if not set
       optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
+      commentTimestampsContainer.classList.toggle(
+        "disabled",
+        !extensionToggle.checked
+      );
 
       // Set comment timestamps toggle
       commentTimestamps.checked = data.commentTimestamps === true;
@@ -30,6 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
   extensionToggle.addEventListener("change", () => {
     const extensionEnabled = extensionToggle.checked;
     optionsGroup.classList.toggle("disabled", !extensionEnabled);
+    commentTimestampsContainer.classList.toggle("disabled", !extensionEnabled);
 
     // Save the toggle state and notify content script
     chrome.storage.sync.set({ extensionEnabled }, () => {
@@ -89,12 +97,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // Helper function to notify content script
   function notifyContentScript(enabled, displayOption, commentTimestamps) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      chrome.tabs.sendMessage(tabs[0].id, {
-        action: "updateDisplayOption",
-        enabled: enabled,
-        displayOption: displayOption,
-        commentTimestamps: commentTimestamps,
-      });
+      // Make sure we have a tab
+      if (tabs && tabs.length > 0) {
+        // Send message and handle potential errors
+        chrome.tabs.sendMessage(
+          tabs[0].id,
+          {
+            action: "updateDisplayOption",
+            enabled: enabled,
+            displayOption: displayOption,
+            commentTimestamps: commentTimestamps,
+          },
+          // Optional callback to silently handle the error
+          (response) => {
+            let lastError = chrome.runtime.lastError;
+            // We're just suppressing the error "Uncaught (in promise) Error: Could not establish connection. Receiving end does not exist." by checking for it
+            // No need to do anything with it
+          }
+        );
+      }
     });
   }
 
