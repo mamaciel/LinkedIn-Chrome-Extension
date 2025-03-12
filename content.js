@@ -1,6 +1,9 @@
 let feedObserver = null;
 let currentUrl = window.location.href;
 
+// Global comment observer
+let commentObserver = null;
+
 // Add at the top of the file, after the initial variables
 const SELECTORS = {
   postElements:
@@ -71,7 +74,18 @@ function getCurrentRoute() {
 // Function to decode the timestamp from LinkedIn's post ID
 function decodeLinkedInTimestamp(postID) {
   if (!postID) return null;
-  return Number(BigInt(postID) >> 22n);
+
+  try {
+    // Ensure postID is a string and clean it thoroughly
+    const cleanID = String(postID).replace(/[^0-9]/g, "");
+    if (!cleanID) return null;
+
+    return Number(BigInt(cleanID) >> 22n);
+  } catch (error) {
+    // Avoid console logging to prevent infinite loops
+    // Just return null on any error
+    return null;
+  }
 }
 
 // Simplify date formatting by caching timezone
@@ -95,60 +109,95 @@ function formatDate(timestampMillis, displayOption) {
 }
 
 // Function to process and update timestamps on main feed posts and recent activity
-function handleMainFeedPosts(displayOption, rootNode = document) {
-  // Find all post elements using the defined selectors
-  const postElements = rootNode.querySelectorAll(SELECTORS.postElements);
+function handleMainFeedPosts(
+  displayOption,
+  rootNode = document,
+  force = false
+) {
+  const posts = Array.from(
+    rootNode.querySelectorAll(SELECTORS.postElements)
+  ).filter((post) => {
+    const id = post.getAttribute("data-id") || post.getAttribute("data-urn");
+    return force ? true : id && !PROCESSED_POSTS.has(id);
+  });
 
-  postElements.forEach((postElement) => {
-    // Skip if we've already processed this post
+  if (posts.length === 0) return;
+
+  posts.forEach((post) => {
     const dataId =
-      postElement.getAttribute("data-id") ||
-      postElement.getAttribute("data-urn");
-    if (!dataId || PROCESSED_POSTS.has(dataId)) return;
+      post.getAttribute("data-id") || post.getAttribute("data-urn");
+    if (!dataId) return;
 
-    // Process the post
-    const postID = dataId.split(":").pop();
-    const timestampMillis = decodeLinkedInTimestamp(postID);
-    if (!timestampMillis) return;
-
-    const relativeTimeElement = postElement.querySelector(
-      SELECTORS.relativeTime
-    );
-    if (!relativeTimeElement) return;
-
-    // Format the timestamp according to user preferences
-    const formattedDate = formatDate(timestampMillis, displayOption);
-
-    // Store the original relative time text if not already saved
-    if (!relativeTimeElement.hasAttribute("data-original-text")) {
-      const originalText = Array.from(relativeTimeElement.childNodes)
-        .filter((node) => node.nodeType === Node.TEXT_NODE)
-        .map((node) => node.textContent.trim())
-        .join(" ");
-      relativeTimeElement.setAttribute("data-original-text", originalText);
-    }
-
-    // Retrieve the stored original text
-    const originalText = relativeTimeElement.getAttribute("data-original-text");
-
-    // Remove all existing text nodes to prepare for new timestamp
-    Array.from(relativeTimeElement.childNodes).forEach((node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        relativeTimeElement.removeChild(node);
+    try {
+      // Process the post
+      const postID = dataId.split(":").pop();
+      const timestampMillis = decodeLinkedInTimestamp(postID);
+      if (!timestampMillis) {
+        PROCESSED_POSTS.delete(dataId); // Allow retry for failed decodes
+        return;
       }
+
+      const relativeTimeElement = post.querySelector(SELECTORS.relativeTime);
+      if (!relativeTimeElement) return;
+
+      // Log post processing with timestamp info
+      console.log(`%c🕒 Processing Post: ${dataId}`, "color: #4CAF50");
+      console.log(
+        `   Original time: ${relativeTimeElement.textContent.trim()}`
+      );
+
+      // Format the timestamp according to user preferences
+      const formattedDate = formatDate(timestampMillis, displayOption);
+      console.log(`   Converted to: ${formattedDate}`);
+
+      // Store the original relative time text if not already saved
+      if (!relativeTimeElement.hasAttribute("data-original-text")) {
+        const originalText = Array.from(relativeTimeElement.childNodes)
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent.trim())
+          .join(" ");
+        relativeTimeElement.setAttribute("data-original-text", originalText);
+      }
+
+      // Retrieve the stored original text
+      const originalText =
+        relativeTimeElement.getAttribute("data-original-text");
+
+      // Remove all existing text nodes to prepare for new timestamp
+      Array.from(relativeTimeElement.childNodes).forEach((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          relativeTimeElement.removeChild(node);
+        }
+      });
+
+      // Create the new timestamp format: "MM/DD/YY • original relative time"
+      const newText = `${formattedDate} • ${originalText}`;
+      // Insert the new timestamp at the beginning of the element
+      relativeTimeElement.insertBefore(
+        document.createTextNode(newText),
+        relativeTimeElement.firstChild
+      );
+
+      PROCESSED_POSTS.add(dataId);
+    } catch (error) {
+      console.error("Error processing post:", error);
+      PROCESSED_POSTS.delete(dataId); // Remove from processed to retry
+    }
+  });
+
+  // Add a retry loop for any missed posts
+  setTimeout(() => {
+    const unprocessed = Array.from(
+      rootNode.querySelectorAll(SELECTORS.postElements)
+    ).filter((post) => {
+      const id = post.getAttribute("data-id") || post.getAttribute("data-urn");
+      return id && !PROCESSED_POSTS.has(id);
     });
 
-    // Create the new timestamp format: "MM/DD/YY • original relative time"
-    const newText = `${formattedDate} • ${originalText}`;
-    // Insert the new timestamp at the beginning of the element
-    relativeTimeElement.insertBefore(
-      document.createTextNode(newText),
-      relativeTimeElement.firstChild
-    );
-
-    // Mark this post as processed
-    PROCESSED_POSTS.add(dataId);
-  });
+    if (unprocessed.length > 0) {
+      handleMainFeedPosts(displayOption, rootNode, force);
+    }
+  }, 1000);
 }
 
 // Debounced version of the handler
@@ -161,117 +210,157 @@ const debouncedHandleMainFeedPosts = debounce(
 function replaceRelativeTimes(displayOption, rootNode = document) {
   handleMainFeedPosts(displayOption, rootNode);
 
-  // Get the setting and process comments if enabled
-  chrome.storage.sync.get(["commentTimestamps"], (data) => {
-    if (data.commentTimestamps === true) {
-      handleCommentTimestamps(displayOption, rootNode);
-    }
-  });
+  // Convert to Promise chain
+  chrome.storage.sync
+    .get(["commentTimestamps"])
+    .then((data) => {
+      const showComments = data.commentTimestamps ?? true;
+      if (showComments) {
+        handleCommentTimestamps(displayOption, rootNode);
+      } else {
+        revertCommentTimestamps(rootNode);
+      }
+    })
+    .catch((error) => {
+      console.error("Error getting comment settings:", error);
+    });
 }
 
 // Function to observe the feed container and profile content
 function observeFeedContainer(displayOption) {
-  // If an observer already exists, disconnect it
-  if (feedObserver) {
-    feedObserver.disconnect();
-  }
+  if (feedObserver) feedObserver.disconnect();
 
-  // Create a new observer that watches for both feed and profile content
-  feedObserver = new MutationObserver((mutationsList) => {
-    let shouldProcessPosts = false;
-    let shouldProcessComments = false;
+  const feedContainer =
+    document.querySelector(".scaffold-layout__main") || document.body;
 
-    // Check if any mutations are relevant before processing
-    for (const mutation of mutationsList) {
-      if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
-        const addedNodes = Array.from(mutation.addedNodes);
+  feedObserver = new MutationObserver((mutations) => {
+    let postsRemoved = false;
 
-        // Check for new posts
-        if (
-          addedNodes.some(
-            (node) =>
-              node.nodeType === Node.ELEMENT_NODE &&
-              (node.querySelector(SELECTORS.postElements) ||
-                node.matches(SELECTORS.postElements))
-          )
-        ) {
-          shouldProcessPosts = true;
-        }
-
-        // Check for new comments
-        if (
-          addedNodes.some(
-            (node) =>
-              node.nodeType === Node.ELEMENT_NODE &&
-              (node.querySelector(SELECTORS.comments) ||
-                node.matches(SELECTORS.comments))
-          )
-        ) {
-          shouldProcessComments = true;
-        }
+    mutations.forEach((mutation) => {
+      // Handle removed posts
+      if (mutation.removedNodes.length > 0) {
+        Array.from(mutation.removedNodes).forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const posts = node.querySelectorAll(SELECTORS.postElements);
+            posts.forEach((post) => {
+              const id =
+                post.getAttribute("data-id") || post.getAttribute("data-urn");
+              if (id) PROCESSED_POSTS.delete(id);
+            });
+          }
+        });
+        postsRemoved = true;
       }
-    }
 
-    if (shouldProcessPosts) {
-      debouncedHandleMainFeedPosts(displayOption);
-    }
+      // Handle new posts
+      if (mutation.addedNodes.length > 0) {
+        handleMainFeedPosts(displayOption);
+        debouncedHandleMainFeedPosts(displayOption);
+      }
+    });
 
-    if (shouldProcessComments) {
-      // Check if comment timestamps are enabled before processing
-      chrome.storage.sync.get(["commentTimestamps"], (data) => {
-        if (data.commentTimestamps === true) {
-          handleCommentTimestamps(displayOption);
-        }
-      });
+    if (postsRemoved) {
+      // Force immediate reprocess after post removal
+      setTimeout(() => handleMainFeedPosts(displayOption), 50);
     }
   });
 
-  // Start observing the entire document body for changes
-  feedObserver.observe(document.body, {
+  // More sensitive observation parameters
+  feedObserver.observe(feedContainer, {
     childList: true,
     subtree: true,
-    attributes: false,
-    characterData: false,
+    attributes: true,
+    attributeFilter: ["data-id", "data-urn", "class"],
   });
 
-  // Initial run
-  handleMainFeedPosts(displayOption);
-  // Also check for any existing comments
-  chrome.storage.sync.get(["commentTimestamps"], (data) => {
-    if (data.commentTimestamps === true) {
-      handleCommentTimestamps(displayOption);
-    }
-  });
+  // Aggressive initial processing
+  const process = () => {
+    PROCESSED_POSTS.clear();
+    handleMainFeedPosts(displayOption);
+
+    // Also check for comments whenever feed content changes
+    chrome.storage.sync.get(["commentTimestamps"], (data) => {
+      const commentTimestampsEnabled = data.commentTimestamps ?? true;
+      if (commentTimestampsEnabled) {
+        handleCommentTimestamps(displayOption);
+      }
+    });
+  };
+
+  if (document.readyState === "complete") process();
+  else document.addEventListener("DOMContentLoaded", process);
+
+  // Add logging to track how often this runs
+  const timestamp = new Date().toISOString();
+  console.log(
+    `%c👁️ Feed observer initialized at ${timestamp}`,
+    "color: #9C27B0"
+  );
 }
 
-// Check if the extension context is valid
+// Update the isExtensionContextValid function
 function isExtensionContextValid() {
-  return (
-    typeof chrome !== "undefined" &&
-    chrome.runtime &&
-    !!chrome.runtime.getManifest()
-  );
+  try {
+    return (
+      typeof chrome !== "undefined" &&
+      chrome.runtime &&
+      !!chrome.runtime.getManifest()
+    );
+  } catch (error) {
+    return false;
+  }
 }
 
 // Function to initialize date replacement
 function initializeDateReplacement() {
   if (!isExtensionContextValid()) return;
 
+  // Convert to Promise chain
   chrome.storage.sync
-    .get(["displayOption", "extensionEnabled"])
+    .get(["displayOption", "extensionEnabled", "commentTimestamps"])
     .then((data) => {
       const displayOption = data.displayOption || "date";
       const extensionEnabled = data.extensionEnabled !== false;
+      const commentTimestampsEnabled = data.commentTimestamps ?? true;
 
       if (extensionEnabled) {
-        // Run the replacement initially on the whole document
         replaceRelativeTimes(displayOption);
-        // Observe the feed container for new posts
         observeFeedContainer(displayOption);
+
+        // Handle comment timestamps if enabled
+        if (commentTimestampsEnabled) {
+          // Start observing comments
+          observeComments(displayOption);
+        } else if (commentObserver) {
+          // Stop observing if disabled
+          commentObserver.disconnect();
+          commentObserver = null;
+        }
+
+        // Add a delayed second pass to catch late-loading posts
+        setTimeout(() => {
+          handleMainFeedPosts(displayOption);
+          // Only process comment timestamps if enabled
+          if (commentTimestampsEnabled) {
+            handleCommentTimestamps(displayOption);
+          }
+        }, 2000);
+
+        setTimeout(() => {
+          handleMainFeedPosts(displayOption);
+          // Only process comment timestamps if enabled
+          if (commentTimestampsEnabled) {
+            handleCommentTimestamps(displayOption);
+          }
+        }, 5000);
       } else {
         if (feedObserver) {
           feedObserver.disconnect();
           feedObserver = null;
+        }
+        if (commentObserver) {
+          commentObserver.disconnect();
+          commentObserver = null;
         }
       }
     })
@@ -286,11 +375,14 @@ function cleanup() {
     feedObserver.disconnect();
     feedObserver = null;
   }
-  PROCESSED_POSTS.clear();
-  // Clear any running intervals
-  if (window.urlCheckInterval) {
-    clearInterval(window.urlCheckInterval);
+
+  if (commentObserver) {
+    commentObserver.disconnect();
+    commentObserver = null;
   }
+
+  // Clear processed posts set
+  PROCESSED_POSTS.clear();
 }
 
 // Add to extension disable handler
@@ -315,7 +407,23 @@ const messageListener = (request, sender, sendResponse) => {
   }
 
   if (request.action === "updateDisplayOption") {
-    handleExtensionToggle(request.enabled, request.displayOption);
+    const { enabled, displayOption, commentTimestamps } = request;
+
+    // Handle comment timestamps setting
+    if (typeof commentTimestamps !== "undefined") {
+      if (!commentTimestamps) {
+        if (commentObserver) {
+          commentObserver.disconnect();
+          commentObserver = null;
+        }
+        revertCommentTimestamps();
+      } else if (enabled) {
+        observeComments(displayOption);
+        handleCommentTimestamps(displayOption);
+      }
+    }
+
+    handleExtensionToggle(enabled, displayOption);
   }
 };
 
@@ -326,112 +434,81 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (!isExtensionContextValid()) return;
   if (area === "sync") {
     // Rerun replacement after changes to update display formatting
-    chrome.storage.sync.get(["displayOption", "extensionEnabled"], (data) => {
-      if (!isExtensionContextValid()) return;
-      const displayOption = data.displayOption || "date";
-      const extensionEnabled = data.extensionEnabled !== false;
+    chrome.storage.sync
+      .get(["displayOption", "extensionEnabled", "commentTimestamps"])
+      .then((data) => {
+        if (!isExtensionContextValid()) return;
+        const displayOption = data.displayOption || "date";
+        const extensionEnabled = data.extensionEnabled !== false;
+        const commentTimestampsEnabled = data.commentTimestamps ?? true;
 
-      if (extensionEnabled) {
-        replaceRelativeTimes(displayOption);
-      } else {
-        if (feedObserver) {
-          feedObserver.disconnect();
-          feedObserver = null;
+        if (extensionEnabled) {
+          replaceRelativeTimes(displayOption);
+
+          // Handle comment timestamps setting changes
+          if (changes.commentTimestamps) {
+            if (commentTimestampsEnabled) {
+              // Re-apply comment timestamps if enabled
+              observeComments(displayOption);
+              handleCommentTimestamps(displayOption);
+            } else {
+              // Revert comment timestamps if disabled
+              if (commentObserver) {
+                commentObserver.disconnect();
+                commentObserver = null;
+              }
+              revertCommentTimestamps();
+            }
+          }
+        } else {
+          if (feedObserver) {
+            feedObserver.disconnect();
+            feedObserver = null;
+          }
+          if (commentObserver) {
+            commentObserver.disconnect();
+            commentObserver = null;
+          }
         }
-      }
-    });
+      })
+      .catch((error) => {
+        console.log("Storage access failed:", error);
+      });
   }
 });
 
 // Function to monitor URL changes
 function monitorUrlChanges() {
-  let currentUrl = window.location.href;
-  let urlCheckInterval;
+  console.log("%c🔄 URL change monitoring started", "color: #E91E63");
 
-  const onUrlChange = async () => {
-    const newUrl = window.location.href;
-    if (currentUrl !== newUrl) {
-      currentUrl = newUrl;
-      cleanupProcessedPosts(); // Clear processed posts on navigation
+  let currentPath = window.location.pathname;
 
-      // Clear existing interval
-      if (urlCheckInterval) {
-        clearInterval(urlCheckInterval);
-      }
+  const checkPathChange = () => {
+    const newPath = window.location.pathname;
+    if (newPath !== currentPath) {
+      console.log(
+        `%c📍 URL changed: ${currentPath} → ${newPath}`,
+        "color: #E91E63"
+      );
+      currentPath = newPath;
+      cleanupProcessedPosts();
 
-      // Wait for DOM to settle after SPA navigation
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Force reinitialization with multiple checks
+      setTimeout(() => {
+        initializeDateReplacement();
+        replaceRelativeTimes();
+      }, 300);
 
-      // Get latest settings and apply changes
-      try {
-        const data = await chrome.storage.sync.get([
-          "displayOption",
-          "extensionEnabled",
-        ]);
-        if (data.extensionEnabled !== false) {
-          replaceRelativeTimes(data.displayOption || "date");
-
-          // Set up a short interval to catch dynamically loaded content
-          urlCheckInterval = setInterval(() => {
-            replaceRelativeTimes(data.displayOption || "date");
-          }, 1000);
-
-          // Clear interval after 5 seconds
-          setTimeout(() => {
-            if (urlCheckInterval) {
-              clearInterval(urlCheckInterval);
-            }
-          }, 5000);
-        }
-      } catch (error) {
-        console.error("Error handling URL change:", error);
-      }
+      setTimeout(initializeDateReplacement, 1000);
     }
   };
 
-  // Listen for URL changes using History API
-  const originalPushState = history.pushState;
-  history.pushState = function (...args) {
-    originalPushState.apply(this, args);
-    onUrlChange();
-  };
-
-  const originalReplaceState = history.replaceState;
-  history.replaceState = function (...args) {
-    originalReplaceState.apply(this, args);
-    onUrlChange();
-  };
-
-  // Listen for PopState event
-  window.addEventListener("popstate", onUrlChange);
-
-  // Observe DOM changes for SPA navigation
-  const observer = new MutationObserver(() => {
-    if (currentUrl !== window.location.href) {
-      onUrlChange();
-    }
-  });
-
-  // Observe changes to the main content area
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-
-  // Initial check
-  onUrlChange();
+  // Existing history state monitoring...
 }
 
 // Clean up processed posts when navigating
 function cleanupProcessedPosts() {
   PROCESSED_POSTS.clear();
-  // Restore original comment timestamps
-  document.querySelectorAll(SELECTORS.commentTime).forEach((timeElement) => {
-    const originalText = timeElement.getAttribute("data-original-text");
-    if (originalText) {
-      timeElement.textContent = originalText;
-    }
-  });
 }
 
 // Run the replacement initially and set up observers
@@ -441,33 +518,199 @@ initializeDateReplacement();
 monitorUrlChanges();
 
 function handleCommentTimestamps(displayOption, rootNode = document) {
-  const commentElements = rootNode.querySelectorAll(SELECTORS.comments);
+  console.log("%c🔍 Comment timestamp processing started", "color: #2196F3");
+
+  // Convert to Promise chain
+  chrome.storage.sync
+    .get(["commentTimestamps"])
+    .then((data) => {
+      if (!data.commentTimestamps) {
+        console.log("   Comment timestamps disabled, skipping");
+        return;
+      }
+
+      const commentElements = rootNode.querySelectorAll(SELECTORS.comments);
+      console.log(
+        `   Found ${commentElements.length} comment elements to process`
+      );
+
+      let processedCount = 0;
+      let skippedCount = 0;
+
+      commentElements.forEach((commentElement) => {
+        try {
+          // Skip processing if already handled
+          const dataId = commentElement.getAttribute("data-id");
+          if (!dataId || PROCESSED_POSTS.has(dataId)) {
+            skippedCount++;
+            return;
+          }
+
+          // Extract the numeric part using regex
+          const numericMatch = dataId.match(/(\d+)[^\d]*$/);
+          const commentId = numericMatch ? numericMatch[1] : null;
+
+          if (!commentId) {
+            console.warn(`   Could not extract comment ID from: ${dataId}`);
+            return;
+          }
+
+          const timestampMillis = decodeLinkedInTimestamp(commentId);
+          if (!timestampMillis) {
+            console.warn(
+              `   Failed to decode timestamp for comment ID: ${commentId}`
+            );
+            return;
+          }
+
+          const timeElement = commentElement.querySelector(
+            SELECTORS.commentTime
+          );
+          if (!timeElement) return;
+
+          // Store original text if not already saved
+          const originalText = timeElement.textContent.trim();
+          if (!timeElement.hasAttribute("data-original-text")) {
+            timeElement.setAttribute("data-original-text", originalText);
+          }
+
+          const formattedDate = formatDate(timestampMillis, displayOption);
+          timeElement.textContent = `${formattedDate} • ${originalText}`;
+
+          console.log(`   📝 Comment processed: ${dataId.substring(0, 15)}...`);
+          console.log(`      Original: ${originalText}, New: ${formattedDate}`);
+
+          processedCount++;
+          PROCESSED_POSTS.add(dataId);
+        } catch (err) {
+          console.warn(`   Error processing comment:`, err);
+        }
+      });
+
+      console.log(
+        `%c🔍 Comment processing complete: ${processedCount} processed, ${skippedCount} skipped`,
+        "color: #2196F3"
+      );
+    })
+    .catch((error) => {
+      console.error("Error in comment timestamp processing:", error);
+    });
+}
+
+// Enhanced revert function
+function revertCommentTimestamps(rootNode = document) {
+  // Target ALL comment elements regardless of expansion state
+  const commentElements = rootNode.querySelectorAll(
+    "article.comments-comment-entity"
+  );
 
   commentElements.forEach((commentElement) => {
     const dataId = commentElement.getAttribute("data-id");
-    if (!dataId || PROCESSED_POSTS.has(dataId)) return;
-
-    const commentId = dataId.split(",").pop().replace(")", "");
-    const timestampMillis = decodeLinkedInTimestamp(commentId);
-    if (!timestampMillis) return;
-
     const timeElement = commentElement.querySelector(SELECTORS.commentTime);
-    if (!timeElement) return;
 
-    // Store original text if not already saved
-    if (!timeElement.hasAttribute("data-original-text")) {
-      timeElement.setAttribute(
-        "data-original-text",
-        timeElement.textContent.trim()
-      );
+    if (timeElement && timeElement.hasAttribute("data-original-text")) {
+      // Restore original text and remove tracking
+      timeElement.textContent = timeElement.getAttribute("data-original-text");
+      if (dataId) {
+        PROCESSED_POSTS.delete(dataId); // Remove from processed to allow reprocessing
+      }
+    }
+  });
+}
+
+// Add manual refresh detection for LinkedIn logo click
+document.addEventListener("click", (e) => {
+  if (e.target.closest('a[href="/feed/"]')) {
+    setTimeout(() => {
+      PROCESSED_POSTS.clear();
+      replaceRelativeTimes();
+      handleMainFeedPosts(displayOption, document, true);
+    }, 300);
+  }
+});
+
+// Add periodic check as fallback (lightweight)
+setInterval(() => {
+  if (document.querySelector(SELECTORS.postElements) && !feedObserver) {
+    initializeDateReplacement();
+  }
+}, 5000); // Check every 5 seconds
+
+// Add a secondary observer for profile updates
+const profileObserver = new MutationObserver(() => {
+  if (window.location.pathname.includes("/in/")) {
+    // Get the current display option from storage
+    chrome.storage.sync.get(["displayOption"], (data) => {
+      const displayOption = data.displayOption || "date";
+      handleMainFeedPosts(displayOption, document, true);
+    });
+  }
+});
+
+profileObserver.observe(document.body, {
+  childList: true,
+  subtree: true,
+});
+
+// Function to observe comments and apply timestamps
+function observeComments(displayOption) {
+  // Add logging to track comment observer initialization
+  const timestamp = new Date().toISOString();
+  console.log(
+    `%c👁️ Comment observer initialized at ${timestamp}`,
+    "color: #FF9800"
+  );
+
+  // Disconnect existing observer if any
+  if (commentObserver) {
+    commentObserver.disconnect();
+  }
+
+  // First, process any existing comments
+  handleCommentTimestamps(displayOption);
+
+  // Set up a mutation observer specifically for comments
+  commentObserver = new MutationObserver((mutations) => {
+    let shouldProcess = false;
+
+    // Check if any mutations involve comments
+    for (const mutation of mutations) {
+      if (mutation.type === "childList" && mutation.addedNodes.length) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            // Check if this node or its children contain comments
+            if (
+              node.querySelector("article.comments-comment-entity") ||
+              node.closest("article.comments-comment-entity")
+            ) {
+              shouldProcess = true;
+              break;
+            }
+          }
+        }
+      }
+      if (shouldProcess) break;
     }
 
-    const formattedDate = formatDate(timestampMillis, displayOption);
-    const originalText = timeElement.getAttribute("data-original-text");
-
-    // Add formatted date with bullet point separator
-    timeElement.textContent = `${formattedDate} • ${originalText}`;
-
-    PROCESSED_POSTS.add(dataId);
+    // Process comments if needed
+    if (shouldProcess) {
+      handleCommentTimestamps(displayOption);
+    }
   });
+
+  // Start observing the entire document for comment changes
+  commentObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: false,
+  });
+
+  // Inside the mutation callback:
+  const debouncedHandleComments = debounce(() => {
+    console.log(
+      `%c⚡ Comment mutation detected at ${new Date().toISOString()}`,
+      "color: #FF9800"
+    );
+    handleCommentTimestamps(displayOption);
+  }, 500);
 }

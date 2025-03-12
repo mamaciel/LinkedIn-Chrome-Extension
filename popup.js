@@ -13,6 +13,9 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.storage.sync.get(
     ["displayOption", "extensionEnabled", "commentTimestamps"],
     (data) => {
+      // Set default comment timestamps to true if not set
+      const commentTimestampsEnabled = data.commentTimestamps ?? true;
+
       // Set display option
       if (data.displayOption === "datetime") {
         dateTime.checked = true;
@@ -21,15 +24,20 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // Set extension toggle
-      extensionToggle.checked = data.extensionEnabled !== false; // Default to true if not set
+      extensionToggle.checked = data.extensionEnabled !== false;
       optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
       commentTimestampsContainer.classList.toggle(
         "disabled",
         !extensionToggle.checked
       );
 
-      // Set comment timestamps toggle
-      commentTimestamps.checked = data.commentTimestamps === true;
+      // Set comment timestamps toggle with default true
+      commentTimestamps.checked = commentTimestampsEnabled;
+
+      // Save default value if not set
+      if (typeof data.commentTimestamps === "undefined") {
+        chrome.storage.sync.set({ commentTimestamps: true });
+      }
     }
   );
 
