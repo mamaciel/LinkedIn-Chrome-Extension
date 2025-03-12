@@ -639,8 +639,7 @@ setInterval(() => {
 // Add a secondary observer for profile updates
 const profileObserver = new MutationObserver(() => {
   if (window.location.pathname.includes("/in/")) {
-    // Get the current display option from storage
-    chrome.storage.sync.get(["displayOption"], (data) => {
+    chrome.storage.sync.get(["displayOption", "dateFormat"], (data) => {
       const displayOption = data.displayOption || "date";
       handleMainFeedPosts(displayOption, document, true);
     });
