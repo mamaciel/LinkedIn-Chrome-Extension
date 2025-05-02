@@ -108,67 +108,6 @@
         transform: translateX(20px);
       }
 
-      .option-group {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        margin-bottom: 24px;
-        opacity: 1;
-        transition: opacity 0.3s, transform 0.3s;
-      }
-
-      .option-group.disabled {
-        opacity: 0.5;
-        pointer-events: none;
-      }
-
-      .toggle-switch.disabled {
-        opacity: 0.5;
-        pointer-events: none;
-      }
-
-      .radio-option {
-        display: flex;
-        align-items: center;
-        border-radius: 12px;
-        cursor: pointer;
-        padding: 10px 12px;
-        transition: background-color 0.2s, transform 0.2s;
-      }
-
-      .radio-option:hover {
-        background-color: var(--hover-color);
-      }
-
-      input[type="radio"] {
-        appearance: none;
-        width: 20px;
-        height: 20px;
-        border: 2px solid var(--primary-color);
-        border-radius: 50%;
-        margin-right: 14px;
-        position: relative;
-        cursor: pointer;
-        transition: border-color 0.2s;
-      }
-
-      input[type="radio"]:checked {
-        border-color: var(--primary-color);
-      }
-
-      input[type="radio"]:checked::after {
-        content: "";
-        position: absolute;
-        width: 12px;
-        height: 12px;
-        background: var(--primary-color);
-        border-radius: 50%;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%) scale(0.8);
-        transition: transform 0.2s;
-      }
-
       .credits {
         margin-top: 16px;
         text-align: center;
@@ -242,12 +181,30 @@
           <span class="slider"></span>
         </label>
       </div>
+
       <div class="toggle-switch">
-        <span class="toggle-label">Show comment timestamps</span>
-        <label class="switch" aria-label="Toggle comment timestamps">
+        <span class="toggle-label">Date format</span>
+        <select
+          id="dateFormatSelect"
+          style="
+            margin-left: 8px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            font-size: 15px;
+          "
+        >
+          <option value="browser">Browser Default</option>
+          <option value="iso">ISO 8601 (YYYY-MM-DD)</option>
+        </select>
+      </div>
+
+      <div class="toggle-switch">
+        <span class="toggle-label">24-hour time</span>
+        <label class="switch" aria-label="Toggle 24-hour time">
           <input
             type="checkbox"
-            id="commentTimestamps"
+            id="timeFormatToggle"
             aria-checked="false"
             role="switch"
           />
@@ -255,34 +212,12 @@
         </label>
       </div>
 
-      <p class="section-title">Display options</p>
-      <div
-        class="option-group"
-        id="options"
-        role="radiogroup"
-        aria-label="Display format options"
-      >
-        <label class="radio-option">
-          <input
-            type="radio"
-            name="display"
-            value="date"
-            id="dateOnly"
-            aria-label="Show date only"
-          />
-          <span>Show Date Only</span>
-        </label>
-        <label class="radio-option">
-          <input
-            type="radio"
-            name="display"
-            value="datetime"
-            id="dateTime"
-            aria-label="Show date and time"
-          />
-          <span>Show Date and Time</span>
-        </label>
-      </div>
+      <p class="section-title">About</p>
+      <p style="font-size: 14px; margin-top: 0; line-height: 1.5">
+        This extension shows the exact date and time of all LinkedIn posts and
+        comments.
+      </p>
+
       <p class="credits">
         Created by
         <a

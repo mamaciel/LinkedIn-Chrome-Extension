@@ -1,85 +1,63 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const dateOnly = document.getElementById("dateOnly");
-  const dateTime = document.getElementById("dateTime");
   const successMessage = document.getElementById("successMessage");
   const extensionToggle = document.getElementById("extensionToggle");
-  const optionsGroup = document.getElementById("options");
-  const commentTimestamps = document.getElementById("commentTimestamps");
-  const commentTimestampsContainer = document
-    .getElementById("commentTimestamps")
-    .closest(".toggle-switch");
+  const dateFormatSelect = document.getElementById("dateFormatSelect");
+  const timeFormatToggle = document.getElementById("timeFormatToggle");
+  const timeFormatSwitchLabel = timeFormatToggle.closest(".switch");
 
   // Initialize the UI based on stored preferences
   chrome.storage.sync.get(
-    ["displayOption", "extensionEnabled", "commentTimestamps"],
+    ["extensionEnabled", "dateFormat", "use24HourTime"],
     (data) => {
-      // Set default comment timestamps to true if not set
-      const commentTimestampsEnabled = data.commentTimestamps ?? true;
-
-      // Set display option
-      if (data.displayOption === "datetime") {
-        dateTime.checked = true;
-      } else {
-        dateOnly.checked = true;
-      }
-
       // Set extension toggle
       extensionToggle.checked = data.extensionEnabled !== false;
-      optionsGroup.classList.toggle("disabled", !extensionToggle.checked);
-      commentTimestampsContainer.classList.toggle(
-        "disabled",
-        !extensionToggle.checked
-      );
-
-      // Set comment timestamps toggle with default true
-      commentTimestamps.checked = commentTimestampsEnabled;
-
-      // Save default value if not set
-      if (typeof data.commentTimestamps === "undefined") {
-        chrome.storage.sync.set({ commentTimestamps: true });
-      }
+      // Set date format dropdown
+      dateFormatSelect.value = data.dateFormat || "browser";
+      // Set 24-hour time toggle
+      timeFormatToggle.checked = !!data.use24HourTime;
+      updateTimeFormatToggleState();
     }
   );
 
   // Handle extension toggle changes
-  function updateSettings(settings, additionalParams = {}) {
+  function updateSettings(settings) {
     chrome.storage.sync.set(settings, () => {
       showSuccessMessage();
-      notifyContentScript(
-        extensionToggle.checked,
-        document.querySelector('input[name="display"]:checked').value,
-        commentTimestamps.checked,
-        ...Object.values(additionalParams)
-      );
+      notifyContentScript({
+        enabled: extensionToggle.checked,
+        dateFormat: dateFormatSelect.value,
+        use24HourTime: timeFormatToggle.checked,
+      });
     });
   }
 
   extensionToggle.addEventListener("change", () => {
     const extensionEnabled = extensionToggle.checked;
-    optionsGroup.classList.toggle("disabled", !extensionEnabled);
-    commentTimestampsContainer.classList.toggle("disabled", !extensionEnabled);
-
     updateSettings({ extensionEnabled });
   });
 
-  // Handle radio button changes
-  document.querySelectorAll('input[name="display"]').forEach((radio) => {
-    radio.addEventListener("change", (e) => {
-      const displayOption = e.target.value;
-
-      // Save the display option and notify content script
-      updateSettings({ displayOption });
-    });
+  dateFormatSelect.addEventListener("change", () => {
+    updateTimeFormatToggleState();
+    updateSettings({ dateFormat: dateFormatSelect.value });
   });
 
-  // Add event listener for comment timestamps toggle
-  document
-    .getElementById("commentTimestamps")
-    .addEventListener("change", (e) => {
-      const showCommentTimestamps = e.target.checked;
+  timeFormatToggle.addEventListener("change", () => {
+    if (timeFormatToggle.disabled) return;
+    updateSettings({ use24HourTime: timeFormatToggle.checked });
+  });
 
-      updateSettings({ commentTimestamps: showCommentTimestamps });
-    });
+  function updateTimeFormatToggleState() {
+    if (dateFormatSelect.value === "iso") {
+      timeFormatToggle.disabled = true;
+      timeFormatToggle.checked = true;
+      timeFormatSwitchLabel.style.opacity = 0.5;
+      timeFormatSwitchLabel.title = "ISO 8601 always uses 24-hour time";
+    } else {
+      timeFormatToggle.disabled = false;
+      timeFormatSwitchLabel.style.opacity = 1;
+      timeFormatSwitchLabel.title = "";
+    }
+  }
 
   // Helper function to show success message
   function showSuccessMessage() {
@@ -90,22 +68,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Helper function to notify content script
-  function notifyContentScript(enabled, displayOption, commentTimestamps) {
+  function notifyContentScript({ enabled, dateFormat, use24HourTime }) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      // Make sure we have a tab
       if (tabs && tabs.length > 0) {
-        // Send message and handle potential errors
         chrome.tabs
           .sendMessage(tabs[0].id, {
             action: "updateDisplayOption",
             enabled,
-            displayOption,
-            commentTimestamps,
+            dateFormat,
+            use24HourTime,
           })
-          .catch(() => {
-            // Silently catch any connection errors
-            // This happens when the extension popup is opened on non-LinkedIn pages
-          });
+          .catch(() => {});
       }
     });
   }
