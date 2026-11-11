@@ -18,8 +18,8 @@
 
       <div class="support-card">
         <p class="support-copy">
-          Free, with no ads
-          <span>If it saves you time, a coffee keeps it updated.</span>
+          Enjoying exact dates?
+          <span>It’s free. A coffee helps me keep it working.</span>
         </p>
         <a
           href="https://buymeacoffee.com/marcosmaciel"
@@ -61,6 +61,10 @@
               <div id="datePreviewPrevious"></div>
             </div>
           </div>
+          <p class="preview-note">
+            A <strong>~</strong> before a date means approximate: for some
+            posts LinkedIn only exposes when they were drafted or scheduled.
+          </p>
         </section>
 
         <div class="setting-item">
@@ -78,7 +82,7 @@
           <select id="separatorStyleSelect" class="setting-select">
             <option value="bullet">Date • 2d</option>
             <option value="paren">Date (2d)</option>
-            <option value="date-only">Date only</option>
+            <option value="date-only">Date, no 2d</option>
             <option value="hover">Keep 2d, date on hover</option>
           </select>
         </div>
@@ -86,7 +90,7 @@
         <div class="toggle-switch">
           <span class="toggle-label">
             Include time
-            <span class="description">Adds the posted time of day</span>
+            <span class="description">Turn off to show the date without a time</span>
           </span>
           <label class="switch" aria-label="Include time">
             <input
@@ -123,6 +127,26 @@
             <option value="utc">UTC</option>
             <option value="hidden">Hide timezone</option>
           </select>
+        </div>
+
+        <div class="toggle-switch">
+          <span class="toggle-label">
+            Job posting dates
+            <span class="description"
+              >Shows when the job you open was posted, and first posted if it
+              was reposted</span
+            >
+          </span>
+          <label class="switch" aria-label="Job posting dates">
+            <input
+              type="checkbox"
+              id="jobDatesToggle"
+              aria-checked="true"
+              role="switch"
+              checked
+            />
+            <span class="slider"></span>
+          </label>
         </div>
       </div>
 

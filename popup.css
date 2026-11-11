@@ -219,6 +219,19 @@ input:disabled + .slider {
   word-break: break-word;
 }
 
+.preview-note {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.preview-note strong {
+  color: var(--text-primary);
+}
+
 .footer {
   text-align: center;
   padding-top: 4px;

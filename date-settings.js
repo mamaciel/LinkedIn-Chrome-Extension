@@ -12,6 +12,7 @@
     "timezoneMode",
     "use24HourTime",
     "showTime",
+    "showJobDates",
   ];
 
   function normalizeDateFormat(value) {
@@ -95,6 +96,15 @@
     yr: [365 * DAY_MS, 366 * DAY_MS],
   };
 
+  const RELATIVE_UNIT_ALIASES = {
+    m: "m", min: "m", mins: "m", minute: "m", minutes: "m",
+    h: "h", hr: "h", hrs: "h", hour: "h", hours: "h",
+    d: "d", day: "d", days: "d",
+    w: "w", week: "w", weeks: "w",
+    mo: "mo", month: "mo", months: "mo",
+    yr: "yr", year: "yr", years: "yr",
+  };
+
   // Sanity check: false only when LinkedIn's own label ("2d", "3w") clearly
   // contradicts the decoded timestamp. That means the ID found is not this
   // post's publish time (another card's ID, a repost, a post drafted or
@@ -106,11 +116,16 @@
     { now = Date.now(), labelRenderedAfter = now } = {},
   ) {
     const token = extractRelativeTimeParts(value)?.token;
-    const match = token && token.match(/^(\d+)\s?(m|h|d|w|mo|yr)$/i);
+    const match =
+      token &&
+      token.match(
+        /^(\d+)\s?(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|weeks?|mo|months?|yr|years?)(?:\s+ago)?$/i,
+      );
     if (!match) return true;
 
     const count = Number(match[1]);
-    const [unitMin, unitMax] = RELATIVE_UNIT_RANGE_MS[match[2].toLowerCase()];
+    const [unitMin, unitMax] =
+      RELATIVE_UNIT_RANGE_MS[RELATIVE_UNIT_ALIASES[match[2].toLowerCase()]];
     // Allows for a device clock that is off and for LinkedIn's rounding
     // (23 months can read "2yr"; below one unit it uses the smaller unit).
     const slack = Math.max(unitMax * 0.1, 30 * 60 * 1000);
@@ -324,6 +339,7 @@
     timezoneMode: normalizeTimezoneMode,
     use24HourTime: (value) => !!value,
     showTime: (value) => value !== false,
+    showJobDates: (value) => value !== false,
   };
 
   function applySettingChanges(current, changes = {}) {

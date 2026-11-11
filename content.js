@@ -26,6 +26,14 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     extractCommentMetadataFromElement,
   } = LinkedInIds;
 
+  const {
+    isJobsPath,
+    getJobIdFromUrl,
+    extractJobAgeParts,
+    parseJobPosting,
+    isRepostedJob,
+  } = LinkedInJobs;
+
   const POST_SELECTORS = [
     '[data-id*="urn:li:activity"]',
     '[data-urn*="urn:li:activity"]',
@@ -86,6 +94,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       ? !!initialData.use24HourTime
       : localeUses24Hour(userLocale);
   let showTime = initialData.showTime !== false;
+  let showJobDates = initialData.showJobDates !== false;
 
   function currentSettings() {
     return {
@@ -94,6 +103,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       timezoneMode,
       use24HourTime,
       showTime,
+      showJobDates,
     };
   }
 
@@ -103,6 +113,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     timezoneMode = next.timezoneMode;
     use24HourTime = next.use24HourTime;
     showTime = next.showTime;
+    showJobDates = next.showJobDates;
     if (next.changed) syncFormatterSettings();
     return next.changed;
   }
@@ -146,6 +157,22 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     );
   }
 
+  const APPROXIMATE_EXPLANATION =
+    "Approximate: LinkedIn only exposes when this post was drafted or scheduled. It may have been published later.";
+
+  // Only an activity ID records when a post went live. A ugcPost or share ID
+  // records when it was created, which for drafted or scheduled posts can be
+  // hours earlier, so dates built from one are shown with a leading "~".
+  function isApproximateDate(element) {
+    if (element.hasAttribute("data-linkedin-comment-id")) return false;
+    const urn = element.getAttribute("data-linkedin-activity-urn") || "";
+    return /^urn:li:(?:ugcPost|share):/i.test(urn);
+  }
+
+  function clearApproximateMark(element) {
+    element.removeAttribute?.("data-linkedin-approx");
+  }
+
   function cachedTimestampIsValid(element) {
     const timestampMillis = getCachedTimestamp(element);
     if (!timestampMillis || !element.hasAttribute("data-original-text")) {
@@ -162,6 +189,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
         "data-linkedin-card-key",
         "data-original-text",
       ].forEach((name) => element.removeAttribute(name));
+      clearApproximateMark(element);
       return null;
     }
 
@@ -448,6 +476,9 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
 
   function handleTimeElements(rootNode = document, force = false) {
     if (!isActive || !rootNode) return;
+    // Job pages have no post timestamps; their "1 week ago" labels belong to
+    // the job lookup below.
+    if (isJobsPath(window.location.pathname)) return;
     collectTimeCandidates(rootNode, force).forEach((timeElement) => {
       scheduleOrRunTimeElementPrewrite(timeElement, force);
     });
@@ -472,7 +503,8 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       hoverDateByElement.get(node) ||
       node.getAttribute?.("data-linkedin-hover-date") ||
       (node.getAttribute?.("data-linkedin-ts")
-        ? formatDate(Number(node.getAttribute("data-linkedin-ts")))
+        ? (isApproximateDate(node) ? "~" : "") +
+          formatDate(Number(node.getAttribute("data-linkedin-ts")))
         : null)
     );
   }
@@ -496,11 +528,16 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
   function findHoverInfo(_start, clientX, clientY) {
     const root = getMainContentRoot() || document.body;
     if (!root?.querySelectorAll) return null;
+    // Hover mode: every dated timestamp shows its date. Otherwise only the
+    // approximate ones have something to say.
+    const hoverMode = separatorStyle === "hover";
     const marked = root.querySelectorAll(
-      "[data-linkedin-hover-date], [data-original-text][data-linkedin-ts]",
+      hoverMode
+        ? "[data-linkedin-hover-date], [data-original-text][data-linkedin-ts]"
+        : "[data-linkedin-approx]",
     );
     for (const el of marked) {
-      const text = hoverTextFrom(el);
+      const text = hoverMode ? hoverTextFrom(el) : APPROXIMATE_EXPLANATION;
       if (text && isPointerOverElement(el, clientX, clientY)) {
         return { text, host: el };
       }
@@ -530,17 +567,19 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       hoverTooltipEl = document.createElement("div");
       hoverTooltipEl.setAttribute("role", "tooltip");
       Object.assign(hoverTooltipEl.style, {
-        maxWidth: "260px",
+        maxWidth: "300px",
         padding: "6px 8px",
         borderRadius: "6px",
         background: "#1e1e1e",
         color: "#e8e8e8",
         font: "12px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         boxShadow: "0 4px 16px rgba(0, 0, 0, 0.35)",
-        whiteSpace: "nowrap",
+        whiteSpace: "pre-line",
       });
       shadow.appendChild(hoverTooltipEl);
-      document.documentElement.appendChild(hoverTooltipHost);
+      // Must live inside <body>: LinkedIn's stylesheet hides empty elements
+      // placed directly under <html>, which made this tooltip invisible.
+      (document.body || document.documentElement).appendChild(hoverTooltipHost);
     }
 
     hoverTooltipEl.textContent = text;
@@ -576,7 +615,9 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       element.setAttribute("data-original-text", originalText);
     }
 
-    const formattedDate = formatDate(timestampMillis);
+    const approximate = isApproximateDate(element);
+    const formattedDate =
+      (approximate ? "~" : "") + formatDate(timestampMillis);
     const relativeParts = extractRelativeTimeParts(originalText);
     const visibleText = formatVisibleText({
       absoluteDate: formattedDate,
@@ -587,9 +628,21 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     });
 
     if (separatorStyle === "hover") {
-      rememberHoverDate(element, formattedDate);
+      rememberHoverDate(
+        element,
+        approximate ? `${formattedDate} (approximate)` : formattedDate,
+      );
     } else {
       clearHoverDate(element);
+    }
+
+    // Marks the element so hovering it explains the "~" (see findHoverInfo).
+    // A title attribute would not work: LinkedIn covers the timestamp with a
+    // link overlay, so the browser never shows its own tooltip there.
+    if (approximate && separatorStyle !== "hover") {
+      element.setAttribute("data-linkedin-approx", "true");
+    } else {
+      clearApproximateMark(element);
     }
 
     if (timeNode) {
@@ -600,6 +653,273 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
         element.firstChild,
       );
     }
+  }
+
+  // ---- Job postings ----------------------------------------------------
+  // A job's dates are not in the page. They come from LinkedIn's own job
+  // endpoint, asked once for the job that is open (never for the list).
+  const JOB_LOOKUP_PAUSE_MS = 10 * 60 * 1000;
+  const JOB_CACHE_LIMIT = 50;
+  const JOB_SCAN_DELAY_MS = 350;
+  const jobPostingById = new Map();
+  let jobLookupsPausedUntil = 0;
+  let jobScanTimer = 0;
+  let pendingJobScanForce = false;
+
+  function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)JSESSIONID="?([^";]+)"?/);
+    return match ? match[1] : "";
+  }
+
+  function fetchJobPosting(jobId) {
+    if (jobPostingById.has(jobId)) return jobPostingById.get(jobId);
+    if (Date.now() < jobLookupsPausedUntil) return Promise.resolve(null);
+    const csrfToken = getCsrfToken();
+    if (!csrfToken || typeof fetch !== "function") return Promise.resolve(null);
+
+    const request = fetch(`/voyager/api/jobs/jobPostings/${jobId}`, {
+      credentials: "include",
+      headers: {
+        accept: "application/json",
+        "csrf-token": csrfToken,
+        "x-restli-protocol-version": "2.0.0",
+      },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          // LinkedIn is refusing: stop asking for a while.
+          if ([401, 403, 429, 999].includes(response.status)) {
+            jobLookupsPausedUntil = Date.now() + JOB_LOOKUP_PAUSE_MS;
+          }
+          return null;
+        }
+        return response.json().then(parseJobPosting);
+      })
+      .catch(() => null);
+
+    jobPostingById.set(jobId, request);
+    if (jobPostingById.size > JOB_CACHE_LIMIT) {
+      jobPostingById.delete(jobPostingById.keys().next().value);
+    }
+    return request;
+  }
+
+  // Job cards in a list repeat the label for screen readers ("Posted 1 week
+  // ago" next to "1 week ago") and carry no job ID; only the open job's own
+  // line can be dated.
+  function isJobCardLabel(element) {
+    // The visible label can be wrapped (new jobs are in <strong>), so the
+    // screen-reader twin is looked for one level further up as well.
+    let node = element;
+    for (let depth = 0; depth < 2 && node?.parentElement; depth += 1) {
+      const parent = node.parentElement;
+      const hasTwin = Array.from(parent.children).some(
+        (sibling) =>
+          sibling !== node &&
+          !!extractJobAgeParts(normalizeText(sibling.textContent)),
+      );
+      if (hasTwin) return true;
+      node = parent;
+    }
+    return false;
+  }
+
+  function findJobAgeLabels() {
+    const root = getMainContentRoot();
+    const found = new Set(
+      root.querySelectorAll("[data-linkedin-job-original-text]"),
+    );
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const element = node.parentElement;
+      if (!element || found.has(element)) continue;
+      if (!extractJobAgeParts(normalizeText(node.textContent))) continue;
+      if (isIgnorableTimeContext(element) || isJobCardLabel(element)) continue;
+      found.add(element);
+    }
+    return Array.from(found);
+  }
+
+  function getJobLine(element) {
+    return element.closest("p") || element.parentElement;
+  }
+
+  // A reposted job has two dates. They are stacked under LinkedIn's own line
+  // instead of being squeezed into it.
+  function renderJobDateRows(element, jobId, rows) {
+    const line = getJobLine(element);
+    if (!line) return;
+    let rowsBlock = line.querySelector(":scope > [data-linkedin-job-dates]");
+    if (!rows) {
+      rowsBlock?.remove();
+      return;
+    }
+
+    const signature = `${jobId}|${rows.map((row) => row.join("=")).join("|")}`;
+    if (rowsBlock?.getAttribute("data-linkedin-job-dates") === signature) {
+      return;
+    }
+    if (!rowsBlock) {
+      rowsBlock = document.createElement("span");
+      Object.assign(rowsBlock.style, {
+        display: "grid",
+        gridTemplateColumns: "max-content 1fr",
+        columnGap: "8px",
+        marginTop: "2px",
+      });
+      line.appendChild(rowsBlock);
+    }
+    rowsBlock.setAttribute("data-linkedin-job-dates", signature);
+    rowsBlock.textContent = "";
+    rows.forEach(([label, value]) => {
+      const labelCell = document.createElement("span");
+      labelCell.textContent = label;
+      const valueCell = document.createElement("span");
+      valueCell.textContent = value;
+      rowsBlock.append(labelCell, valueCell);
+    });
+  }
+
+  function removeJobDateRows(scope = document) {
+    scope
+      .querySelectorAll("[data-linkedin-job-dates]")
+      .forEach((rowsBlock) => rowsBlock.remove());
+  }
+
+  function restoreJobLabel(element) {
+    const originalText = element.getAttribute(
+      "data-linkedin-job-original-text",
+    );
+    const textNode = getPrimaryTimeTextNode(element);
+    if (originalText && textNode && textNode.textContent !== originalText) {
+      textNode.textContent = originalText;
+    }
+    element.removeAttribute("data-linkedin-job-original-text");
+    element.removeAttribute("data-linkedin-job-id");
+    clearHoverDate(element);
+    const line = getJobLine(element);
+    if (line) removeJobDateRows(line);
+  }
+
+  function restoreJobLabels() {
+    document
+      .querySelectorAll("[data-linkedin-job-original-text]")
+      .forEach(restoreJobLabel);
+    removeJobDateRows();
+  }
+
+  function renderJobLabel(element, jobId, posting) {
+    const originalText = element.getAttribute(
+      "data-linkedin-job-original-text",
+    );
+    const parts = extractJobAgeParts(originalText);
+    const textNode = getPrimaryTimeTextNode(element);
+    if (!parts || !textNode) return;
+
+    const listedDate = formatDate(posting.listedAt);
+    const reposted = isRepostedJob(posting);
+    const firstPostedDate = reposted
+      ? formatDate(posting.originalListedAt)
+      : "";
+
+    let visibleText = originalText;
+    let stackedRows = null;
+    if (separatorStyle === "hover") {
+      rememberHoverDate(
+        element,
+        reposted
+          ? `First posted ${firstPostedDate}\nReposted ${listedDate}`
+          : `Posted ${listedDate}`,
+      );
+    } else {
+      clearHoverDate(element);
+      if (reposted) {
+        stackedRows = [
+          ["First posted", firstPostedDate],
+          ["Reposted", listedDate],
+        ];
+      } else {
+        visibleText =
+          parts.prefix +
+          formatVisibleText({
+            absoluteDate: listedDate,
+            relativeText: parts.relative,
+            separatorStyle,
+            originalText: parts.relative,
+          });
+      }
+    }
+
+    element.setAttribute("data-linkedin-job-id", jobId);
+    if (textNode.textContent !== visibleText) {
+      textNode.textContent = visibleText;
+    }
+    renderJobDateRows(element, jobId, stackedRows);
+  }
+
+  function processJobDates(force = false) {
+    if (!isActive || !showJobDates) return;
+    const jobId = getJobIdFromUrl(window.location.href);
+    if (!jobId) return;
+
+    document.querySelectorAll("[data-linkedin-job-dates]").forEach((rows) => {
+      if (!rows.getAttribute("data-linkedin-job-dates").startsWith(`${jobId}|`)) {
+        rows.remove();
+      }
+    });
+
+    findJobAgeLabels().forEach((element) => {
+      const currentText = normalizeText(
+        getPrimaryTimeTextNode(element)?.textContent,
+      );
+      // LinkedIn's own label is showing: either never dated, or LinkedIn
+      // re-rendered it (for example for another job).
+      const showsLinkedInLabel = !!extractJobAgeParts(currentText);
+      const renderedForThisJob =
+        element.getAttribute("data-linkedin-job-id") === jobId;
+
+      if (showsLinkedInLabel) {
+        element.setAttribute("data-linkedin-job-original-text", currentText);
+      } else if (!renderedForThisJob) {
+        restoreJobLabel(element);
+        const restored = normalizeText(
+          getPrimaryTimeTextNode(element)?.textContent,
+        );
+        if (!extractJobAgeParts(restored)) return;
+        element.setAttribute("data-linkedin-job-original-text", restored);
+      } else if (!force) {
+        return;
+      }
+
+      fetchJobPosting(jobId).then((posting) => {
+        if (!posting || !isActive || !showJobDates || !element.isConnected) {
+          return;
+        }
+        // The user may have opened another job while this was loading.
+        if (getJobIdFromUrl(window.location.href) !== jobId) return;
+        renderJobLabel(element, jobId, posting);
+      });
+    });
+  }
+
+  function scheduleJobScan(force = false) {
+    if (!isActive) return;
+    pendingJobScanForce = pendingJobScanForce || force;
+    if (!showJobDates) {
+      restoreJobLabels();
+      return;
+    }
+    if (!getJobIdFromUrl(window.location.href)) return;
+    clearTimeout(jobScanTimer);
+    jobScanTimer = setTimeout(
+      () => {
+        const shouldForce = pendingJobScanForce;
+        pendingJobScanForce = false;
+        processJobDates(shouldForce);
+      },
+      force ? 0 : JOB_SCAN_DELAY_MS,
+    );
   }
 
   function scheduleTimeRescan(rootNode = document, force = false) {
@@ -652,6 +972,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
 
     feedObserver = new MutationObserver((mutations) => {
       checkNavigation();
+      scheduleJobScan();
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
@@ -714,6 +1035,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     startupRetryIds = [];
     clearTimeout(navigationRetryId);
     clearTimeout(feedClickRetryId);
+    clearTimeout(jobScanTimer);
     clearProcessed();
   }
 
@@ -731,6 +1053,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       }
       element.removeAttribute("data-original-text");
       clearHoverDate(element);
+      clearApproximateMark(element);
     });
     document.querySelectorAll("[data-linkedin-hover-date]").forEach(clearHoverDate);
   }
@@ -740,6 +1063,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     resetTimeElementIntersectionObserver();
     hideHoverTooltip();
     handleTimeElements(getMainContentRoot(), true);
+    scheduleJobScan(true);
   }
 
   function applyIncomingSettings(changes) {
@@ -760,6 +1084,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     isActive = false;
     cleanup();
     restoreOriginalTimes();
+    restoreJobLabels();
   }
 
   function handleExtensionToggle(enabled) {
@@ -796,19 +1121,29 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     }, 500);
   }
 
+  // Checked at most once per frame: the lookup measures elements on the page.
+  let pendingPointer = null;
+  function updateHoverTooltip() {
+    const pointer = pendingPointer;
+    pendingPointer = null;
+    if (!pointer || !isActive) {
+      hideHoverTooltip();
+      return;
+    }
+    const info = findHoverInfo(null, pointer.x, pointer.y);
+    if (!info) {
+      hideHoverTooltip();
+      return;
+    }
+    showHoverTooltip(info.text, pointer.x, pointer.y);
+  }
+
   document.addEventListener(
     "mousemove",
     (event) => {
-      if (!isActive || separatorStyle !== "hover") {
-        hideHoverTooltip();
-        return;
-      }
-      const info = findHoverInfo(event.target, event.clientX, event.clientY);
-      if (!info) {
-        hideHoverTooltip();
-        return;
-      }
-      showHoverTooltip(info.text, event.clientX, event.clientY);
+      const alreadyScheduled = pendingPointer !== null;
+      pendingPointer = { x: event.clientX, y: event.clientY };
+      if (!alreadyScheduled) requestAnimationFrame(updateHoverTooltip);
     },
     true,
   );

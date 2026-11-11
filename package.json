@@ -1,0 +1,13 @@
+{
+  "name": "linkedin-post-dates-extension",
+  "version": "2.5.0",
+  "private": true,
+  "description": "Development tooling for the Display LinkedIn Post Date and Time extension. Nothing here ships in the extension.",
+  "scripts": {
+    "test": "node tests/unit.test.js && node tests/posts.test.js && node tests/jobs.test.js && node tests/popup.test.js",
+    "zip": "node tools/make-zip.js"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}

@@ -627,8 +627,11 @@
     }
 
     const candidateValues = [
+      // Without a card to stay inside, looking through the page around the
+      // timestamp picks up unrelated posts (every job on a job page got the
+      // date of a company post embedded further down).
       ...collectElementCandidateStrings(element, {
-        includeDescendants: true,
+        includeDescendants: !!postRoot,
         descendantScope: postRoot,
       }),
       typeof window !== "undefined" ? window.location.href : "",

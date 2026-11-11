@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const timezoneModeSelect = document.getElementById("timezoneModeSelect");
   const timeFormatToggle = document.getElementById("timeFormatToggle");
   const showTimeToggle = document.getElementById("showTimeToggle");
+  const jobDatesToggle = document.getElementById("jobDatesToggle");
   const datePreviewCurrent = document.getElementById("datePreviewCurrent");
   const datePreviewPrevious = document.getElementById("datePreviewPrevious");
   const settingsFields = document.getElementById("settingsFields");
@@ -42,6 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ? !!data.use24HourTime
         : localeUses24Hour(userLocale);
     showTimeToggle.checked = data.showTime !== false;
+    jobDatesToggle.checked = data.showJobDates !== false;
     syncToggleA11y();
     setSettingsEnabled(extensionToggle.checked);
     updateTimeFormatToggleState();
@@ -65,6 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function syncToggleA11y() {
     extensionToggle.setAttribute("aria-checked", String(extensionToggle.checked));
     showTimeToggle.setAttribute("aria-checked", String(showTimeToggle.checked));
+    jobDatesToggle.setAttribute("aria-checked", String(jobDatesToggle.checked));
     timeFormatToggle.setAttribute("aria-checked", String(timeFormatToggle.checked));
   }
 
@@ -156,6 +159,11 @@ document.addEventListener("DOMContentLoaded", () => {
   showTimeToggle.addEventListener("change", () => {
     updateTimeFormatToggleState();
     updateSettings({ showTime: showTimeToggle.checked });
+  });
+
+  jobDatesToggle.addEventListener("change", () => {
+    syncToggleA11y();
+    updateSettings({ showJobDates: jobDatesToggle.checked });
   });
 
   function updateTimeFormatToggleState() {
