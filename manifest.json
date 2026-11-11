@@ -1,24 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Display LinkedIn Post Date and Time",
-  "version": "2.0",
+  "version": "2.4",
   "description": "Replace LinkedIn's relative post times with exact date and timestamp on your feed and comments!",
   "permissions": ["storage"],
   "content_scripts": [
     {
       "matches": [
-        "https://www.linkedin.com/feed/*",
-        "https://www.linkedin.com/posts/*",
-        "https://www.linkedin.com/in/*",
-        "https://www.linkedin.com/search/*",
-        "https://www.linkedin.com/company/*"
+        "https://www.linkedin.com/*",
+        "https://linkedin.com/*"
       ],
-      "js": ["content.js"],
+      "js": ["date-settings.js", "linkedin-ids.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_title": "Exact post dates"
   },
   "icons": {
     "16": "icons/icon16.png",

@@ -4,174 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LinkedIn Date Options</title>
-    <style>
-      :root {
-        --primary-color: #0a66c2;
-        --primary-hover: #004182;
-        --background-color: #f3f6f8;
-        --card-background: #ffffff;
-        --text-color: #1a1a1a;
-        --border-color: #e0e0e0;
-        --success-color: #36b37e;
-        --toggle-off: #ddd;
-        --hover-color: rgba(10, 102, 194, 0.08);
-      }
-
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Oxygen, Ubuntu, sans-serif;
-        padding: 16px;
-        width: 320px;
-        margin: 0;
-        background: var(--background-color);
-        color: var(--text-color);
-      }
-
-      .container {
-        background: var(--card-background);
-        padding: 24px;
-        border-radius: 16px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-      }
-
-      h3 {
-        margin: 0 0 20px 0;
-        color: var(--primary-color);
-        font-size: 20px;
-        font-weight: 600;
-      }
-
-      .section-title {
-        font-size: 15px;
-        font-weight: 600;
-        margin: 0 0 12px 0;
-        color: #555;
-      }
-
-      .toggle-switch {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 20px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid var(--border-color);
-      }
-
-      .toggle-label {
-        font-size: 15px;
-        font-weight: 500;
-      }
-
-      .switch {
-        position: relative;
-        display: inline-block;
-        width: 40px;
-        height: 20px;
-      }
-
-      .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
-
-      .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: var(--toggle-off);
-        transition: background-color 0.3s, box-shadow 0.2s;
-        border-radius: 20px;
-      }
-
-      .slider:before {
-        position: absolute;
-        content: "";
-        height: 16px;
-        width: 16px;
-        left: 2px;
-        bottom: 2px;
-        background-color: white;
-        transition: transform 0.3s, background-color 0.3s;
-        border-radius: 50%;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-      }
-
-      input:checked + .slider {
-        background-color: var(--primary-color);
-      }
-
-      input:checked + .slider:before {
-        transform: translateX(20px);
-      }
-
-      .credits {
-        margin-top: 16px;
-        text-align: center;
-        font-size: 14px;
-        color: #666;
-      }
-
-      .credits a {
-        color: var(--primary-color);
-        text-decoration: none;
-        transition: color 0.2s;
-      }
-
-      .credits a:hover {
-        color: var(--primary-hover);
-      }
-
-      .success-message {
-        position: fixed;
-        top: 16px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--success-color);
-        color: white;
-        padding: 10px 20px;
-        border-radius: 24px;
-        font-size: 14px;
-        font-weight: 500;
-        opacity: 0;
-        transition: opacity 0.3s, transform 0.3s;
-        pointer-events: none;
-      }
-
-      .success-message.show {
-        opacity: 1;
-        transform: translate(-50%, 4px);
-      }
-
-      .coffee-button {
-        display: inline-block;
-        margin-top: 12px;
-        padding: 8px 16px;
-        background-color: #ffdd00;
-        color: #000000;
-        border-radius: 24px;
-        text-decoration: none;
-        font-size: 14px;
-        font-weight: 500;
-        transition: all 0.2s;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-      }
-
-      .coffee-button:hover {
-        background-color: #ffe44d;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-      }
-    </style>
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <div class="container">
-      <h3>Display LinkedIn Post Dates</h3>
-      <div class="toggle-switch">
-        <span class="toggle-label">Enable extension</span>
-        <label class="switch" aria-label="Toggle extension">
+      <div class="header">
+        <img src="icons/icon48.png" alt="" />
+        <div class="header-copy">
+          <h1>Exact post dates</h1>
+          <p>Replace LinkedIn’s “2d” times with the real date.</p>
+        </div>
+      </div>
+
+      <div class="toggle-switch enable-row">
+        <span class="toggle-label">
+          Show exact dates
+          <span class="description">Turns the extension on or off</span>
+        </span>
+        <label class="switch" aria-label="Show exact dates">
           <input
             type="checkbox"
             id="extensionToggle"
@@ -182,71 +32,115 @@
         </label>
       </div>
 
-      <div class="toggle-switch">
-        <span class="toggle-label">Date format</span>
-        <select
-          id="dateFormatSelect"
-          style="
-            margin-left: 8px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            border: 1px solid var(--border-color);
-            font-size: 15px;
-          "
-        >
-          <option value="browser">Browser Default</option>
-          <option value="iso">ISO 8601 (YYYY-MM-DD)</option>
-        </select>
+      <div id="settingsFields" class="settings-group">
+        <section class="preview-card" aria-live="polite">
+          <span class="setting-label">Preview</span>
+          <div class="date-preview-values">
+            <div>
+              <span class="preview-caption">This year</span>
+              <div id="datePreviewCurrent"></div>
+            </div>
+            <div>
+              <span class="preview-caption">Last year</span>
+              <div id="datePreviewPrevious"></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="setting-item">
+          <label class="setting-label" for="dateFormatSelect">Date style</label>
+          <select id="dateFormatSelect" class="setting-select">
+            <option value="compact">Jan 17</option>
+            <option value="friendly">January 17th</option>
+            <option value="numeric">01/17/26</option>
+            <option value="iso">2026-01-17</option>
+          </select>
+        </div>
+
+        <div class="setting-item">
+          <label class="setting-label" for="separatorStyleSelect">Show as</label>
+          <select id="separatorStyleSelect" class="setting-select">
+            <option value="bullet">Date • 2d</option>
+            <option value="paren">Date (2d)</option>
+            <option value="date-only">Date only</option>
+            <option value="hover">Keep 2d, date on hover</option>
+          </select>
+        </div>
+
+        <div class="toggle-switch">
+          <span class="toggle-label">
+            Include time
+            <span class="description">Adds the posted time of day</span>
+          </span>
+          <label class="switch" aria-label="Include time">
+            <input
+              type="checkbox"
+              id="showTimeToggle"
+              aria-checked="true"
+              role="switch"
+              checked
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-switch" id="timeFormatRow">
+          <span class="toggle-label">
+            24-hour clock
+            <span class="description" id="timeFormatHint">Uses your language default, or 24-hour</span>
+          </span>
+          <label class="switch" aria-label="24-hour clock">
+            <input
+              type="checkbox"
+              id="timeFormatToggle"
+              aria-checked="false"
+              role="switch"
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <label class="setting-label" for="timezoneModeSelect">Timezone</label>
+          <select id="timezoneModeSelect" class="setting-select">
+            <option value="local" id="localTimezoneOption">My timezone</option>
+            <option value="utc">UTC</option>
+            <option value="hidden">Hide timezone</option>
+          </select>
+        </div>
       </div>
 
-      <div class="toggle-switch">
-        <span class="toggle-label">24-hour time</span>
-        <label class="switch" aria-label="Toggle 24-hour time">
-          <input
-            type="checkbox"
-            id="timeFormatToggle"
-            aria-checked="false"
-            role="switch"
-          />
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <p class="section-title">About</p>
-      <p style="font-size: 14px; margin-top: 0; line-height: 1.5">
-        This extension shows the exact date and time of all LinkedIn posts and
-        comments.
-      </p>
-
-      <p class="credits">
-        Created by
-        <a
-          href="https://www.marcosmaciel.tech"
-          target="_blank"
-          id="creditsLink"
-          aria-label="Visit Marcos Maciel's website (opens in new tab)"
-          >Marcos Maciel</a
-        >
-        <br />
+      <div class="footer">
+        <p class="credits">
+          Created by
+          <a
+            href="https://www.marcosmaciel.tech"
+            target="_blank"
+            id="creditsLink"
+            aria-label="Visit Marcos Maciel's website (opens in a new tab)"
+            >Marcos Maciel</a
+          >
+        </p>
         <a
           href="https://buymeacoffee.com/marcosmaciel"
           target="_blank"
-          aria-label="Support the developer on Buy Me a Coffee (opens in new tab)"
+          aria-label="Support the developer on Buy Me a Coffee (opens in a new tab)"
           class="coffee-button"
         >
-          ☕️ Buy me a coffee
+          <span>☕️</span>
+          <span>Buy me a coffee</span>
         </a>
-      </p>
+      </div>
     </div>
     <div
       class="success-message"
       id="successMessage"
-      style="text-align: center; min-width: max-content"
       role="alert"
       aria-live="polite"
     >
-      Settings updated successfully!
+      Saved
     </div>
+    <script src="date-settings.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

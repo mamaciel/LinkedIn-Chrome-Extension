@@ -5,7 +5,7 @@ Hey there! I made this Chrome extension because I was tired of LinkedIn's vague 
 ## What it does
 
 - Replaces those annoying relative timestamps with actual dates
-- Works everywhere on LinkedIn (feed, profiles, single posts)
+- Works on the feed, profiles, company pages, single posts, and comments
 - Keeps the original relative time too (like "2w") just in case you want both
 - Very lightweight and shouldn't slow down your browsing
 
@@ -15,12 +15,13 @@ Just download it from the Chrome Web Store (https://chromewebstore.google.com/de
 ![image](https://github.com/user-attachments/assets/1dce4330-ab34-46e2-9ce8-17c413b9686c)
 
 
-## Settings ⚙️
+## Settings
 
-You get two display options:
-
-- Just the date (like "12/25/23")
-- Full date + time (like "12/25/23, 2:30PM EST")
+- Turn exact dates on or off
+- Date style: compact, friendly, numeric, or ISO
+- Show as date + 2d, date only, or date on hover
+- Optional time of day, 24-hour clock, and timezone
+- Dates follow your browser language
 
 ## Tech Stuff (if you're curious)
 
