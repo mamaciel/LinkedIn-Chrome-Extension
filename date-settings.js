@@ -42,9 +42,10 @@
     return cycle === "h23" || cycle === "h24";
   }
 
-  function getShortTimeZone(now = new Date(), locale) {
+  function getShortTimeZone(now = new Date(), locale, timeZone) {
     const zone = new Intl.DateTimeFormat(getDefaultLocale(locale), {
       timeZoneName: "short",
+      timeZone,
     })
       .formatToParts(now)
       .find((part) => part.type === "timeZoneName")?.value;
@@ -83,14 +84,62 @@
     return !!extractRelativeTimeParts(value);
   }
 
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  // [shortest, longest] real duration that one unit of a LinkedIn label covers.
+  const RELATIVE_UNIT_RANGE_MS = {
+    m: [60 * 1000, 60 * 1000],
+    h: [60 * 60 * 1000, 60 * 60 * 1000],
+    d: [DAY_MS, DAY_MS],
+    w: [7 * DAY_MS, 7 * DAY_MS],
+    mo: [28 * DAY_MS, 31 * DAY_MS],
+    yr: [365 * DAY_MS, 366 * DAY_MS],
+  };
+
+  // Sanity check: false only when LinkedIn's own label ("2d", "3w") clearly
+  // contradicts the decoded timestamp. That means the ID found is not this
+  // post's publish time (another card's ID, a repost, a post drafted or
+  // scheduled days earlier), so no exact date should be shown for it.
+  // Only English short labels are checked; anything else passes.
+  function isTimestampConsistentWithRelativeText(
+    value,
+    timestampMillis,
+    { now = Date.now(), labelRenderedAfter = now } = {},
+  ) {
+    const token = extractRelativeTimeParts(value)?.token;
+    const match = token && token.match(/^(\d+)\s?(m|h|d|w|mo|yr)$/i);
+    if (!match) return true;
+
+    const count = Number(match[1]);
+    const [unitMin, unitMax] = RELATIVE_UNIT_RANGE_MS[match[2].toLowerCase()];
+    // Allows for a device clock that is off and for LinkedIn's rounding
+    // (23 months can read "2yr"; below one unit it uses the smaller unit).
+    const slack = Math.max(unitMax * 0.1, 30 * 60 * 1000);
+    const youngest = (count <= 1 ? count : count - 0.6) * unitMin - slack;
+    const oldest = (count + 1) * unitMax + slack;
+
+    // The label was written at some point between page load and now.
+    return (
+      now - timestampMillis >= youngest &&
+      labelRenderedAfter - timestampMillis <= oldest
+    );
+  }
+
   function resolveTimeZone(settings) {
     if (settings.timeZone) return settings.timeZone;
     return settings.timezoneMode === "utc" ? "UTC" : undefined;
   }
 
-  function getZoneLabel(settings) {
+  // The label must match the date being shown, not today: a July post is
+  // "EDT" even when it is read in December ("EST").
+  function getZoneLabel(date, settings) {
     if (settings.timezoneMode === "utc") return "UTC";
     if (settings.timezoneMode === "hidden") return "";
+    try {
+      const zone = getShortTimeZone(date, settings.locale, settings.timeZone);
+      if (zone) return zone;
+    } catch (error) {
+      // Fall through to the label computed at startup.
+    }
     return settings.shortTimeZone || "";
   }
 
@@ -231,7 +280,7 @@
     }
 
     const formattedTime = formatTime(date, { ...settings, dateFormat }, timeZone);
-    const zoneLabel = getZoneLabel(settings);
+    const zoneLabel = getZoneLabel(date, settings);
     return `${formattedDate}, ${formattedTime}${zoneLabel ? ` ${zoneLabel}` : ""}`;
   }
 
@@ -304,6 +353,7 @@
     getShortTimeZone,
     extractRelativeTimeParts,
     isRelativeTimeText,
+    isTimestampConsistentWithRelativeText,
     formatAbsoluteDate,
     formatVisibleText,
     formatPreviewText,

@@ -10,6 +10,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     applySettingChanges,
     extractRelativeTimeParts,
     isRelativeTimeText,
+    isTimestampConsistentWithRelativeText,
     getShortTimeZone,
     localeUses24Hour,
   } = LinkedInDateSettings;
@@ -54,6 +55,9 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
   const STARTUP_RETRY_MS = [400, 1400, 3000];
   const EXPAND_CLICK_REGEX =
     /comment|repl(y|ies)|more comments|see more|load more|previous|activity|posts/i;
+
+  const PAGE_LOADED_AT =
+    Date.now() - (typeof performance !== "undefined" ? performance.now() : 0);
 
   const userLocale =
     navigator.language || navigator.languages?.[0] || "en-US";
@@ -264,6 +268,16 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     return Array.from(found);
   }
 
+  // Never show a date that contradicts LinkedIn's own "2d"/"3w" label.
+  function matchesLinkedInLabel(originalText, timestampMillis) {
+    const pageLanguage = document.documentElement?.lang || "en";
+    if (!/^en\b/i.test(pageLanguage)) return true;
+    return isTimestampConsistentWithRelativeText(originalText, timestampMillis, {
+      now: Date.now(),
+      labelRenderedAfter: PAGE_LOADED_AT,
+    });
+  }
+
   function processPostTimeElement(timeElement, force = false) {
     if (!isActive || !timeElement) return;
 
@@ -299,6 +313,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
       getNumericSnowflakeId(activityUrn),
     );
     if (!timestampMillis) return;
+    if (!matchesLinkedInLabel(originalText, timestampMillis)) return;
 
     cacheTimestamp(timeElement, timestampMillis);
     updateTimeElement(timeElement, timestampMillis);
@@ -330,6 +345,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
 
     const timestampMillis = decodeLinkedInTimestamp(commentId);
     if (!timestampMillis) return false;
+    if (!matchesLinkedInLabel(originalText, timestampMillis)) return false;
 
     cacheTimestamp(timeElement, timestampMillis);
     updateTimeElement(timeElement, timestampMillis);
@@ -635,6 +651,7 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     if (!document.body) return;
 
     feedObserver = new MutationObserver((mutations) => {
+      checkNavigation();
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
@@ -763,34 +780,20 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
     }
   });
 
-  function monitorUrlChanges() {
-    if (history.pushState.__linkedinDatesWrapped) return;
-
-    let currentHref = window.location.href;
-    const checkNavigation = () => {
-      const nextHref = window.location.href;
-      if (nextHref === currentHref) return;
-      currentHref = nextHref;
-      clearProcessed();
-      if (!isActive) return;
-      clearTimeout(navigationRetryId);
-      navigationRetryId = setTimeout(() => {
-        if (isActive) initializeDateReplacement();
-      }, 500);
-    };
-
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-    history.pushState = function () {
-      originalPushState.apply(this, arguments);
-      checkNavigation();
-    };
-    history.replaceState = function () {
-      originalReplaceState.apply(this, arguments);
-      checkNavigation();
-    };
-    history.pushState.__linkedinDatesWrapped = true;
-    window.addEventListener("popstate", checkNavigation);
+  // LinkedIn navigates without reloading. A content script cannot see the
+  // page's own history.pushState calls, so the URL is compared whenever the
+  // page changes (see observeFeedContainer) and on back/forward.
+  let currentHref = window.location.href;
+  function checkNavigation() {
+    const nextHref = window.location.href;
+    if (nextHref === currentHref) return;
+    currentHref = nextHref;
+    clearProcessed();
+    if (!isActive) return;
+    clearTimeout(navigationRetryId);
+    navigationRetryId = setTimeout(() => {
+      if (isActive) initializeDateReplacement();
+    }, 500);
   }
 
   document.addEventListener(
@@ -847,5 +850,5 @@ chrome.storage.sync.get(LinkedInDateSettings.STORAGE_KEYS, (storedData) => {
   if (initialData.extensionEnabled !== false) {
     startExtension();
   }
-  monitorUrlChanges();
+  window.addEventListener("popstate", checkNavigation);
 });

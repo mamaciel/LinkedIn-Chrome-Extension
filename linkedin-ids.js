@@ -170,72 +170,6 @@
     return values;
   }
 
-  function collectReactCandidateStrings(element) {
-    const values = [];
-    const seenStrings = new Set();
-    const visitedObjects = new Set();
-
-    const pushValue = (value) => {
-      const normalized = normalizeText(value);
-      if (!normalized || seenStrings.has(normalized)) return;
-      seenStrings.add(normalized);
-      values.push(normalized);
-    };
-
-    const scanValue = (value, depth = 0) => {
-      if (!value || depth > 3) return;
-
-      if (typeof value === "string") {
-        if (
-          /(urn:li:|comment|activity|componentKey|dashCommentUrn)/i.test(value)
-        ) {
-          pushValue(value);
-        }
-        return;
-      }
-
-      if (typeof value !== "object" || visitedObjects.has(value)) return;
-      visitedObjects.add(value);
-
-      if (Array.isArray(value)) {
-        value.slice(0, 10).forEach((item) => scanValue(item, depth + 1));
-        return;
-      }
-
-      Object.entries(value)
-        .slice(0, 100)
-        .forEach(([key, nestedValue]) => {
-          if (
-            typeof nestedValue === "string" &&
-            /(urn:li:|comment|activity|componentKey|dashCommentUrn)/i.test(
-              nestedValue,
-            )
-          ) {
-            pushValue(nestedValue);
-          }
-
-          if (
-            /^(memoizedProps|pendingProps|child|sibling|return)$/i.test(key) ||
-            /(comment|urn|activity|componentKey|props|children)/i.test(key)
-          ) {
-            scanValue(nestedValue, depth + 1);
-          }
-        });
-    };
-
-    let current = element;
-    let depth = 0;
-    while (current && depth < 6) {
-      Object.keys(current)
-        .filter((key) => /^__react(?:Props|Fiber|EventHandlers)/.test(key))
-        .forEach((key) => scanValue(current[key]));
-      current = current.parentElement;
-      depth += 1;
-    }
-
-    return values;
-  }
-
   function extractActivityUrnFromString(value) {
     if (!value) return null;
 
@@ -578,9 +512,14 @@
   // Resolves a post timestamp using only IDs inside its own card. A post link
   // only counts for this timestamp when no other timestamp sits closer to it,
   // so a reshare's outer time and its embedded original each get their own ID.
-  function extractCardScopedPostUrn(element, postRoot, findTimeElements) {
+  function extractCardScopedPostUrn(
+    element,
+    postRoot,
+    findTimeElements,
+    { tokenOnly = false } = {},
+  ) {
     const cardUrn = extractCardOwnEncodedUrn(postRoot, getPostCardKey(element));
-    if (typeof findTimeElements !== "function") return cardUrn;
+    if (tokenOnly || typeof findTimeElements !== "function") return cardUrn;
 
     const isSameTime = (other) =>
       other === element || other.contains(element) || element.contains(other);
@@ -614,6 +553,28 @@
     return cardUrn;
   }
 
+  const REPOST_HEADER_REGEX = /\brepost|republi/i;
+
+  // "X reposted this" cards show the original post's time, but apart from the
+  // card's comment-tools token they only carry the ID of the repost itself.
+  function hasRepostHeader(element, postRoot) {
+    const legacyHeader = element
+      .closest?.(".feed-shared-update-v2")
+      ?.querySelector(".update-components-header");
+    if (legacyHeader) {
+      return REPOST_HEADER_REGEX.test(legacyHeader.textContent || "");
+    }
+    if (!postRoot || !element.ownerDocument?.createRange) return false;
+    try {
+      const range = element.ownerDocument.createRange();
+      range.setStart(postRoot, 0);
+      range.setEndBefore(element);
+      return REPOST_HEADER_REGEX.test(range.toString().slice(0, 160));
+    } catch (error) {
+      return false;
+    }
+  }
+
   function rememberActivityUrn(element, urn) {
     if (urn) element.setAttribute?.("data-linkedin-activity-urn", urn);
     return urn || null;
@@ -637,23 +598,32 @@
         ?.getAttribute("data-linkedin-activity-urn");
     if (cachedActivityUrn) return cachedActivityUrn;
 
-    const fromAncestors = extractPostUrnFromAncestorAttributes(element);
-    if (fromAncestors) return rememberActivityUrn(element, fromAncestors);
+    const postRoot = getContainingPostRoot(element);
+    const isRepost = hasRepostHeader(element, postRoot);
 
-    const fromExpandedComments =
-      extractActivityUrnFromExpandedCommentRoots(element);
-    if (fromExpandedComments) {
-      return rememberActivityUrn(element, fromExpandedComments);
+    const fromAncestors = extractPostUrnFromAncestorAttributes(element);
+    if (fromAncestors) {
+      return isRepost ? null : rememberActivityUrn(element, fromAncestors);
     }
 
-    const postRoot = getContainingPostRoot(element);
     if (postRoot) {
       const fromCard = extractCardScopedPostUrn(
         element,
         postRoot,
         findTimeElements,
+        { tokenOnly: isRepost },
       );
       if (fromCard) return rememberActivityUrn(element, fromCard);
+    }
+    // Every other source on a repost card is the repost's ID, not the post's.
+    if (isRepost) return null;
+
+    // After the card lookup: comments name the outer post, which would be
+    // wrong for the timestamp of an embedded (reshared) post.
+    const fromExpandedComments =
+      extractActivityUrnFromExpandedCommentRoots(element);
+    if (fromExpandedComments) {
+      return rememberActivityUrn(element, fromExpandedComments);
     }
 
     const candidateValues = [
@@ -661,7 +631,6 @@
         includeDescendants: true,
         descendantScope: postRoot,
       }),
-      ...collectReactCandidateStrings(element),
       typeof window !== "undefined" ? window.location.href : "",
     ];
 
@@ -700,34 +669,29 @@
       : commentElement?.closest?.(COMMENT_ROOT_SELECTOR);
     if (!commentRoot) return null;
 
-    const cachedCommentId =
-      commentRoot.getAttribute?.("data-linkedin-comment-id") ||
-      commentRoot
-        .closest?.("[data-linkedin-comment-id]")
-        ?.getAttribute("data-linkedin-comment-id");
+    // The nearest ancestor carrying a comment URN is this comment's own. Check
+    // it before any cached value: replies are nested inside their parent
+    // comment, so a cached ID found on an ancestor would be the parent's.
+    const fromAncestors =
+      extractCommentMetadataFromAncestorAttributes(commentRoot);
+    if (fromAncestors) return fromAncestors;
+
+    const cachedCommentId = commentRoot.getAttribute?.(
+      "data-linkedin-comment-id",
+    );
     if (cachedCommentId) {
       return {
         commentId: cachedCommentId,
         activityUrn:
-          commentRoot.getAttribute?.("data-linkedin-activity-urn") ||
-          commentRoot
-            .closest?.("[data-linkedin-activity-urn]")
-            ?.getAttribute("data-linkedin-activity-urn") ||
-          null,
+          commentRoot.getAttribute?.("data-linkedin-activity-urn") || null,
       };
-    }
-
-    const fromAncestors =
-      extractCommentMetadataFromAncestorAttributes(commentRoot);
-    if (fromAncestors) {
-      return rememberCommentMetadata(commentRoot, fromAncestors);
     }
 
     const candidateValues = [
       ...collectElementCandidateStrings(commentRoot, {
         includeDescendants: true,
+        descendantScope: commentRoot,
       }),
-      ...collectReactCandidateStrings(commentRoot),
     ];
 
     for (const value of candidateValues) {
