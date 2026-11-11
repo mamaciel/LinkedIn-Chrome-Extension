@@ -62,7 +62,15 @@ To make the zip for the Chrome Web Store:
 npm run zip
 ```
 
-It writes `dist/linkedin-post-dates-<version>.zip` with only the files the extension runs. Upload that zip, not a zip of this folder, so tests and `node_modules` never ship.
+To make the zip for Firefox (addons.mozilla.org):
+
+```bash
+npm run zip:firefox
+```
+
+Both are written to `dist/` and contain only the files the extension runs. Upload those zips, not a zip of this folder, so tests and `node_modules` never ship.
+
+Chrome and Firefox use the same code. The Firefox zip only differs in its manifest: `manifest.json` with the keys from `manifest.firefox.json` (the add-on ID and Firefox settings) merged in. To try it in Firefox, open `about:debugging`, choose **This Firefox**, then **Load Temporary Add-on** and pick the Firefox zip.
 
 ## Found a bug?
 
